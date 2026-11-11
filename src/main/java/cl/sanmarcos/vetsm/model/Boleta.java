@@ -49,6 +49,17 @@ public class Boleta {
     @Column(nullable = false, length = 20)
     private EstadoBoleta estado = EstadoBoleta.PAGADA;
 
+    // ---------- Medio de pago: solo datos seguros, nunca el número completo ni el CVV ----------
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pago_marca", length = 20)
+    private MarcaTarjeta pagoMarca;
+
+    @Column(name = "pago_ultimos4", length = 4)
+    private String pagoUltimos4;
+
+    @Column(name = "codigo_autorizacion", length = 12)
+    private String codigoAutorizacion;
+
     @OneToMany(mappedBy = "boleta", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<DetalleBoleta> detalles = new ArrayList<>();
 

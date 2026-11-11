@@ -12,6 +12,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -58,6 +59,13 @@ public class Producto {
     /** Un producto inactivo deja de mostrarse en la tienda, pero se conserva en las boletas antiguas. */
     @Column(nullable = false)
     private boolean activo = true;
+
+    /**
+     * Control de concurrencia optimista: si dos clientes compran el último artículo al mismo tiempo,
+     * la segunda compra falla en vez de dejar el stock en negativo.
+     */
+    @Version
+    private Long version;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "categoria_id", nullable = false, foreignKey = @ForeignKey(name = "fk_producto_categoria"))

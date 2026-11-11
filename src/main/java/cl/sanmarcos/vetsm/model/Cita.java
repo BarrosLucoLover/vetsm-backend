@@ -20,7 +20,16 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** Hora de atención agendada para una mascota. El servicio es un Producto de tipo SERVICIO. */
+/**
+ * Hora de atención agendada. El servicio es un Producto de tipo SERVICIO.
+ *
+ * Puede venir de dos lugares:
+ * - Un cliente registrado que elige una de sus mascotas: `mascota` apunta a ella.
+ * - Una solicitud sin cuenta (formulario público de la portada o una persona que llega a recepción):
+ *   `mascota` queda vacía y solo se guardan los datos de contacto.
+ * En ambos casos se copian el nombre de la mascota, del dueño y el teléfono, para que la recepción
+ * siempre tenga a quién llamar.
+ */
 @Entity
 @Table(name = "cita")
 @Getter
@@ -32,9 +41,18 @@ public class Cita {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "mascota_id", nullable = false, foreignKey = @ForeignKey(name = "fk_cita_mascota"))
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "mascota_id", foreignKey = @ForeignKey(name = "fk_cita_mascota"))
     private Mascota mascota;
+
+    @Column(name = "nombre_mascota", nullable = false, length = 60)
+    private String nombreMascota;
+
+    @Column(name = "nombre_dueno", nullable = false, length = 100)
+    private String nombreDueno;
+
+    @Column(name = "telefono_contacto", length = 20)
+    private String telefonoContacto;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "servicio_id", nullable = false, foreignKey = @ForeignKey(name = "fk_cita_servicio"))
@@ -56,13 +74,21 @@ public class Cita {
     @Column(name = "fecha_creacion", nullable = false, updatable = false)
     private LocalDateTime fechaCreacion;
 
+    /** Cita de una mascota registrada: los datos de contacto se toman de la mascota y su dueño. */
     public Cita(Mascota mascota, Producto servicio, LocalDate fecha, LocalTime hora, EstadoCita estado, String notas) {
-        this.mascota = mascota;
+        asignarMascota(mascota);
         this.servicio = servicio;
         this.fecha = fecha;
         this.hora = hora;
         this.estado = estado;
         this.notas = notas;
+    }
+
+    public void asignarMascota(Mascota mascota) {
+        this.mascota = mascota;
+        this.nombreMascota = mascota.getNombre();
+        this.nombreDueno = mascota.getDueno().getNombre();
+        this.telefonoContacto = mascota.getDueno().getTelefono();
     }
 
     @PrePersist

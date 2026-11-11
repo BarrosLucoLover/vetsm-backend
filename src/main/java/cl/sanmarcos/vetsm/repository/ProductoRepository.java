@@ -10,6 +10,8 @@ public interface ProductoRepository extends JpaRepository<Producto, Long> {
     /** Catálogo visible en la tienda. */
     List<Producto> findByActivoTrueOrderByNombreAsc();
 
+    List<Producto> findAllByOrderByNombreAsc();
+
     List<Producto> findByTipoAndActivoTrueOrderByNombreAsc(TipoProducto tipo);
 
     List<Producto> findByCategoriaIdAndActivoTrueOrderByNombreAsc(Long categoriaId);

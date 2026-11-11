@@ -8,4 +8,8 @@ public interface MascotaRepository extends JpaRepository<Mascota, Long> {
 
     /** Mascotas de un dueño: es lo único que un cliente puede ver. */
     List<Mascota> findByDuenoIdOrderByNombreAsc(Long duenoId);
+
+    List<Mascota> findAllByOrderByNombreAsc();
+
+    boolean existsByDuenoId(Long duenoId);
 }

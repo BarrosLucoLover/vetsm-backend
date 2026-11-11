@@ -25,4 +25,8 @@ public interface CitaRepository extends JpaRepository<Cita, Long> {
     boolean existsByFechaAndHoraAndEstadoNotAndIdNot(LocalDate fecha, LocalTime hora, EstadoCita estado, Long id);
 
     boolean existsByMascotaId(Long mascotaId);
+
+    long countByEstado(EstadoCita estado);
+
+    List<Cita> findByFechaAndEstadoOrderByHoraAsc(LocalDate fecha, EstadoCita estado);
 }

@@ -42,6 +42,24 @@ public class Usuario {
     @Column(length = 20)
     private String telefono;
 
+    // ---------- Personalización del perfil (sección "Mi cuenta" del cliente) ----------
+    @Column(length = 60)
+    private String region;
+
+    @Column(length = 60)
+    private String comuna;
+
+    @Column(length = 150)
+    private String direccion;
+
+    /** Emoji del avatar elegido por el usuario. */
+    @Column(name = "avatar_icono", length = 16)
+    private String avatarIcono;
+
+    /** Color del avatar en formato #RRGGBB. */
+    @Column(name = "avatar_color", length = 7)
+    private String avatarColor;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Rol rol;
