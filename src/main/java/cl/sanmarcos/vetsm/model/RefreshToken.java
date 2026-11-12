@@ -58,6 +58,10 @@ public class RefreshToken {
     @Column(nullable = false)
     private boolean reemplazado;
 
+    /** Cuándo se cambió por uno nuevo. Sirve para distinguir un robo de dos pestañas que renuevan a la vez. */
+    @Column(name = "reemplazado_en")
+    private Instant reemplazadoEn;
+
     public RefreshToken(Usuario usuario, String tokenHash, Instant creadoEn, Instant expiraEn) {
         this.usuario = usuario;
         this.tokenHash = tokenHash;

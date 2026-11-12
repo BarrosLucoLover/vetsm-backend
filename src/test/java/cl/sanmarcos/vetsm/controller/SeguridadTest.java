@@ -13,7 +13,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import cl.sanmarcos.vetsm.model.RefreshToken;
 import cl.sanmarcos.vetsm.repository.ProductoRepository;
+import cl.sanmarcos.vetsm.repository.RefreshTokenRepository;
 import cl.sanmarcos.vetsm.repository.UsuarioRepository;
 import cl.sanmarcos.vetsm.security.CookieSesion;
 import com.jayway.jsonpath.JsonPath;
@@ -51,6 +53,7 @@ class SeguridadTest extends PruebaConSesion {
     @Autowired private JwtDecoder decoder;
     @Autowired private UsuarioRepository usuarios;
     @Autowired private ProductoRepository productos;
+    @Autowired private RefreshTokenRepository refreshTokens;
 
     private MockHttpServletResponse login(String email, String password) throws Exception {
         return sinSesion(post("/api/v1/auth/login"), "{\"email\": \"%s\", \"password\": \"%s\"}".formatted(email, password))
@@ -272,10 +275,23 @@ class SeguridadTest extends PruebaConSesion {
         void deteccionDeRobo() throws Exception {
             Cookie robada = cookieDe(login(CLIENTE, "Cliente123!"));
             Cookie legitima = cookieDe(renovar(robada));
+            // El ladrón la usa un minuto después (fuera del margen para pestañas simultáneas).
+            refreshTokens.findAll().stream().filter(RefreshToken::isReemplazado)
+                    .forEach(t -> t.setReemplazadoEn(t.getReemplazadoEn().minusSeconds(60)));
 
             assertThat(renovar(robada).getStatus()).isEqualTo(401);
             // La sesión legítima también se cerró: hay que volver a iniciar sesión.
             assertThat(renovar(legitima).getStatus()).isEqualTo(401);
+        }
+
+        @Test
+        @DisplayName("Dos pestañas que renuevan a la vez: la segunda recibe 401, pero la sesión sigue abierta")
+        void renovacionSimultanea() throws Exception {
+            Cookie compartida = cookieDe(login(CLIENTE, "Cliente123!"));
+            Cookie nueva = cookieDe(renovar(compartida));
+
+            assertThat(renovar(compartida).getStatus()).isEqualTo(401);
+            assertThat(renovar(nueva).getStatus()).isEqualTo(200);
         }
 
         @Test

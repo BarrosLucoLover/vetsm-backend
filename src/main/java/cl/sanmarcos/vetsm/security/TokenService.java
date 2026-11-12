@@ -32,6 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
  * - Token de RENOVACIÓN (aleatorio, dura días): viaja en una cookie HttpOnly que JavaScript no
  *   puede leer. Sirve una sola vez: cada renovación lo cambia por uno nuevo (rotación).
  *   Si un token ya usado aparece otra vez, se asume que fue robado y se cierran todas las sesiones.
+ *   Excepción: si reaparece pocos segundos después de cambiarse, lo más probable es que dos pestañas
+ *   del mismo navegador hayan renovado a la vez. Ese intento recibe 401 pero no cierra las sesiones.
  */
 @Service
 @Transactional
@@ -49,17 +51,20 @@ public class TokenService {
     private final String emisor;
     private final Duration duracionAcceso;
     private final Duration duracionRenovacion;
+    private final Duration gracia;
 
     public TokenService(JwtEncoder encoder, RefreshTokenRepository refreshTokens, Clock reloj,
             @Value("${app.jwt.emisor}") String emisor,
             @Value("${app.jwt.minutos-acceso:15}") long minutosAcceso,
-            @Value("${app.jwt.dias-renovacion:7}") long diasRenovacion) {
+            @Value("${app.jwt.dias-renovacion:7}") long diasRenovacion,
+            @Value("${app.jwt.segundos-gracia:10}") long segundosGracia) {
         this.encoder = encoder;
         this.refreshTokens = refreshTokens;
         this.reloj = reloj;
         this.emisor = emisor;
         this.duracionAcceso = Duration.ofMinutes(minutosAcceso);
         this.duracionRenovacion = Duration.ofDays(diasRenovacion);
+        this.gracia = Duration.ofSeconds(segundosGracia);
     }
 
     /** Tokens recién emitidos. El de renovación va en texto plano solo para ponerlo en la cookie. */
@@ -84,23 +89,30 @@ public class TokenService {
         RefreshToken guardado = refreshTokens.findByTokenHash(hash(tokenPlano))
                 .orElseThrow(() -> new ApiException.NoAutorizado(SESION_INVALIDA));
         Usuario usuario = guardado.getUsuario();
+        Instant ahora = Instant.now(reloj);
 
         if (guardado.isRevocado()) {
-            if (guardado.isReemplazado()) {
+            if (guardado.isReemplazado() && !esRenovacionSimultanea(guardado, ahora)) {
                 // Un token que ya se cambió por otro volvió a aparecer: alguien más tiene una copia.
                 log.warn("Se reutilizó un token de renovación ya usado del usuario {}. Se cierran todas sus sesiones.", usuario.getId());
                 revocarTodas(usuario.getId());
             }
             throw new ApiException.NoAutorizado(SESION_INVALIDA);
         }
-        if (guardado.estaVencido(Instant.now(reloj)) || !usuario.isActivo()) {
+        if (guardado.estaVencido(ahora) || !usuario.isActivo()) {
             guardado.setRevocado(true);
             throw new ApiException.NoAutorizado(SESION_INVALIDA);
         }
         // Rotación: este token queda usado y se entrega uno nuevo.
         guardado.setRevocado(true);
         guardado.setReemplazado(true);
+        guardado.setReemplazadoEn(ahora);
         return new Renovacion(usuario, emitir(usuario));
+    }
+
+    /** Dos pestañas que renuevan al mismo tiempo usan la misma cookie con segundos de diferencia. */
+    private boolean esRenovacionSimultanea(RefreshToken token, Instant ahora) {
+        return token.getReemplazadoEn() != null && ahora.isBefore(token.getReemplazadoEn().plus(gracia));
     }
 
     public record Renovacion(Usuario usuario, Tokens tokens) {

@@ -111,7 +111,10 @@ respuestas y el rol que lo puede usar.
    Un token alterado (por ejemplo, con el rol cambiado), vencido o de otro sistema recibe `401`.
 4. **Renovación:** `POST /auth/refresh` cambia la cookie por una nueva y entrega un JWT nuevo
    (**rotación**: cada token de renovación sirve una sola vez). Si un token ya usado vuelve a
-   aparecer, se asume que fue robado y **se cierran todas las sesiones** de esa cuenta.
+   aparecer, se asume que fue robado y **se cierran todas las sesiones** de esa cuenta. Excepción:
+   si reaparece menos de 10 segundos después de cambiarse (`app.jwt.segundos-gracia`), lo más
+   probable es que dos pestañas del mismo navegador hayan renovado a la vez; ese intento recibe
+   `401`, pero no se cierran las demás sesiones.
 5. **Revocación:** cerrar sesión, cambiar la contraseña o desactivar la cuenta revoca los tokens de
    renovación. En la base de datos solo se guarda su hash SHA-256.
 
@@ -197,7 +200,7 @@ Todos los errores tienen el mismo formato:
 ./mvnw test
 ```
 
-88 pruebas sobre H2 en memoria (no necesitan Oracle):
+89 pruebas sobre H2 en memoria (no necesitan Oracle):
 
 - `ReglasDelModeloTest` y `ValidadorTarjetaTest`: reglas puras, sin base de datos.
 - `RepositoriosTest`: consultas JPA.
