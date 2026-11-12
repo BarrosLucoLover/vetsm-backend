@@ -5,8 +5,10 @@ import cl.sanmarcos.vetsm.dto.CitaResponse;
 import cl.sanmarcos.vetsm.exception.ApiException;
 import cl.sanmarcos.vetsm.model.Cita;
 import cl.sanmarcos.vetsm.model.EstadoCita;
+import cl.sanmarcos.vetsm.model.Mascota;
 import cl.sanmarcos.vetsm.model.Producto;
 import cl.sanmarcos.vetsm.repository.CitaRepository;
+import cl.sanmarcos.vetsm.security.Actor;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -59,20 +61,24 @@ public class CitaService {
         return CitaResponse.desde(buscar(id));
     }
 
-    public CitaResponse crear(CitaRequest datos) {
+    /**
+     * actor: quien agenda, o null si es una solicitud sin sesión (formulario público).
+     * Un cliente solo puede agendar para sus propias mascotas; el personal, para cualquiera.
+     */
+    public CitaResponse crear(CitaRequest datos, Actor actor) {
         Cita cita = new Cita();
-        aplicar(cita, datos, null);
+        aplicar(cita, datos, null, actor);
         cita.setEstado(EstadoCita.PENDIENTE);
         return CitaResponse.desde(citas.save(cita));
     }
 
     /** Edita o reagenda una cita que todavía no termina. */
-    public CitaResponse actualizar(Long id, CitaRequest datos) {
+    public CitaResponse actualizar(Long id, CitaRequest datos, Actor actor) {
         Cita cita = buscar(id);
         if (cita.getEstado().esFinal()) {
             throw new ApiException.Conflicto("La cita está " + cita.getEstado().name().toLowerCase() + " y ya no se puede modificar.");
         }
-        aplicar(cita, datos, id);
+        aplicar(cita, datos, id, actor);
         return CitaResponse.desde(cita);
     }
 
@@ -99,9 +105,17 @@ public class CitaService {
     }
 
     /** idActual: la cita que se está reagendando (su propio horario no cuenta como ocupado). */
-    private void aplicar(Cita cita, CitaRequest datos, Long idActual) {
+    private void aplicar(Cita cita, CitaRequest datos, Long idActual, Actor actor) {
         if (datos.mascotaId() != null) {
-            cita.asignarMascota(mascotas.buscar(datos.mascotaId()));
+            if (actor == null) {
+                throw new ApiException.ReglaNegocio("Para elegir una mascota registrada debes iniciar sesión.");
+            }
+            Mascota mascota = mascotas.buscar(datos.mascotaId());
+            if (!actor.esPersonal() && !mascota.getDueno().getId().equals(actor.id())) {
+                // A un cliente, una mascota ajena se le responde como inexistente.
+                throw new ApiException.NoEncontrado("No existe la mascota " + datos.mascotaId() + ".");
+            }
+            cita.asignarMascota(mascota);
         } else {
             Map<String, String> errores = new LinkedHashMap<>();
             if (vacio(datos.nombreMascota())) {

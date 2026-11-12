@@ -1,6 +1,7 @@
 package cl.sanmarcos.vetsm.service;
 
 import cl.sanmarcos.vetsm.dto.MascotaRequest;
+import cl.sanmarcos.vetsm.dto.MiMascotaRequest;
 import cl.sanmarcos.vetsm.dto.MascotaResponse;
 import cl.sanmarcos.vetsm.exception.ApiException;
 import cl.sanmarcos.vetsm.model.Mascota;
@@ -35,6 +36,11 @@ public class MascotaService {
     @Transactional(readOnly = true)
     public MascotaResponse obtener(Long id) {
         return MascotaResponse.desde(buscar(id));
+    }
+
+    /** Un cliente registra su propia mascota: el dueño es quien inició sesión. */
+    public MascotaResponse crearPara(Long clienteId, MiMascotaRequest datos) {
+        return crear(new MascotaRequest(datos.nombre(), datos.especie(), datos.raza(), clienteId));
     }
 
     public MascotaResponse crear(MascotaRequest datos) {

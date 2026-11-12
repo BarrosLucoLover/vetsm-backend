@@ -5,6 +5,7 @@ import cl.sanmarcos.vetsm.dto.CitaRequest;
 import cl.sanmarcos.vetsm.dto.CitaResponse;
 import cl.sanmarcos.vetsm.exception.ErrorResponse;
 import cl.sanmarcos.vetsm.model.EstadoCita;
+import cl.sanmarcos.vetsm.security.Actor;
 import cl.sanmarcos.vetsm.service.CitaService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -18,6 +19,9 @@ import java.util.List;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -30,15 +34,38 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/** Agenda: cualquiera solicita una cita; el personal la gestiona (RF3, RF4); cada cliente ve las suyas. */
 @RestController
 @RequestMapping("/api/v1/citas")
 @Tag(name = "Citas")
+@PreAuthorize("hasAnyRole('ADMIN', 'RECEPCIONISTA')")
 public class CitaController {
 
     private final CitaService servicio;
 
     public CitaController(CitaService servicio) {
         this.servicio = servicio;
+    }
+
+    @PostMapping
+    @PreAuthorize("permitAll()")
+    @Operation(summary = "Agenda una cita (queda PENDIENTE)", description = """
+            Público: también la usa el formulario de la portada, sin sesión. Con sesión de CLIENTE se puede
+            indicar mascotaId (solo de sus propias mascotas). No se agenda en el pasado ni en un horario ocupado.""")
+    @ApiResponse(responseCode = "201", description = "Agendada")
+    @ApiResponse(responseCode = "400", description = "Datos inválidos", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "409", description = "Horario ocupado", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "422", description = "Fecha pasada o servicio no disponible", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    public ResponseEntity<CitaResponse> crear(@Valid @RequestBody CitaRequest datos, @AuthenticationPrincipal Jwt jwt) {
+        CitaResponse creada = servicio.crear(datos, Actor.desde(jwt));
+        return Respuestas.creado(creada.id(), creada);
+    }
+
+    @GetMapping("/mias")
+    @PreAuthorize("hasRole('CLIENTE')")
+    @Operation(summary = "Citas de mis mascotas", description = "Rol: CLIENTE.")
+    public List<CitaResponse> mias(@AuthenticationPrincipal Jwt jwt) {
+        return servicio.listarDeCliente(Long.valueOf(jwt.getSubject()));
     }
 
     @GetMapping
@@ -58,24 +85,12 @@ public class CitaController {
         return servicio.obtener(id);
     }
 
-    @PostMapping
-    @Operation(summary = "Agenda una cita (queda PENDIENTE)",
-            description = "Público: también la usa el formulario de la portada, sin cuenta. No se agenda en el pasado ni en un horario ocupado.")
-    @ApiResponse(responseCode = "201", description = "Agendada")
-    @ApiResponse(responseCode = "400", description = "Datos inválidos", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    @ApiResponse(responseCode = "409", description = "Horario ocupado", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    @ApiResponse(responseCode = "422", description = "Fecha pasada o servicio no disponible", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    public ResponseEntity<CitaResponse> crear(@Valid @RequestBody CitaRequest datos) {
-        CitaResponse creada = servicio.crear(datos);
-        return Respuestas.creado(creada.id(), creada);
-    }
-
     @PutMapping("/{id}")
     @Operation(summary = "Edita o reagenda una cita", description = "Roles: ADMIN y RECEPCIONISTA. No se modifican citas completadas ni canceladas.")
     @ApiResponse(responseCode = "200", description = "Actualizada")
     @ApiResponse(responseCode = "409", description = "Horario ocupado o cita ya terminada", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    public CitaResponse actualizar(@PathVariable Long id, @Valid @RequestBody CitaRequest datos) {
-        return servicio.actualizar(id, datos);
+    public CitaResponse actualizar(@PathVariable Long id, @Valid @RequestBody CitaRequest datos, @AuthenticationPrincipal Jwt jwt) {
+        return servicio.actualizar(id, datos, Actor.desde(jwt));
     }
 
     @PatchMapping("/{id}/estado")

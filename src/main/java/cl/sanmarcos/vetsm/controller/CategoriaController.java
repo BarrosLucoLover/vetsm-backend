@@ -8,7 +8,9 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.security.access.prepost.PreAuthorize;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -35,12 +37,14 @@ public class CategoriaController {
     }
 
     @GetMapping
+    @SecurityRequirements
     @Operation(summary = "Lista las categorías", description = "Público.")
     public List<CategoriaResponse> listar() {
         return servicio.listar();
     }
 
     @GetMapping("/{id}")
+    @SecurityRequirements
     @Operation(summary = "Obtiene una categoría", description = "Público.")
     @ApiResponse(responseCode = "200", description = "Categoría encontrada")
     @ApiResponse(responseCode = "404", description = "No existe", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -49,6 +53,7 @@ public class CategoriaController {
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Crea una categoría", description = "Rol: ADMIN.")
     @ApiResponse(responseCode = "201", description = "Creada. La cabecera Location indica su URL")
     @ApiResponse(responseCode = "400", description = "Datos inválidos", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -59,6 +64,7 @@ public class CategoriaController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Edita una categoría", description = "Rol: ADMIN.")
     @ApiResponse(responseCode = "200", description = "Actualizada")
     @ApiResponse(responseCode = "404", description = "No existe", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -69,6 +75,7 @@ public class CategoriaController {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Elimina una categoría vacía", description = "Rol: ADMIN. Si tiene productos responde 409.")
     @ApiResponse(responseCode = "204", description = "Eliminada")
     @ApiResponse(responseCode = "404", description = "No existe", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

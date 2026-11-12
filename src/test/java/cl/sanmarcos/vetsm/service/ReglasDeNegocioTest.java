@@ -26,6 +26,7 @@ import cl.sanmarcos.vetsm.repository.MascotaRepository;
 import cl.sanmarcos.vetsm.repository.ProductoRepository;
 import cl.sanmarcos.vetsm.repository.TarjetaRepository;
 import cl.sanmarcos.vetsm.repository.UsuarioRepository;
+import cl.sanmarcos.vetsm.security.Actor;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -65,6 +66,8 @@ class ReglasDeNegocioTest {
 
     private Usuario ana;
     private Usuario admin;
+    private Usuario recepcion;
+    private Actor personal;
     private Producto consulta;
     private Producto collar;
     private LocalDate enUnaSemana;
@@ -73,6 +76,8 @@ class ReglasDeNegocioTest {
     void datos() {
         ana = usuarioRepo.findByEmail("ana.garcia@correo.cl").orElseThrow();
         admin = usuarioRepo.findByEmail("admin@sanmarcos.cl").orElseThrow();
+        recepcion = usuarioRepo.findByEmail("recepcion@sanmarcos.cl").orElseThrow();
+        personal = new Actor(recepcion.getId(), Rol.RECEPCIONISTA);
         consulta = porNombre("Consulta General");
         collar = porNombre("Collar antipulgas");
         enUnaSemana = LocalDate.now(reloj).plusDays(7);
@@ -87,7 +92,7 @@ class ReglasDeNegocioTest {
     }
 
     private CompraRequest compra(Long productoId, int cantidad, PagoRequest pago) {
-        return new CompraRequest(ana.getId(), List.of(new ItemCompraRequest(productoId, cantidad)), pago);
+        return new CompraRequest(List.of(new ItemCompraRequest(productoId, cantidad)), pago);
     }
 
     private static PagoRequest pagoNuevo(TarjetaRequest tarjeta, boolean guardar) {
@@ -101,7 +106,7 @@ class ReglasDeNegocioTest {
         @Test
         @DisplayName("Una solicitud sin cuenta queda PENDIENTE con los datos de contacto")
         void solicitudSinCuenta() {
-            CitaResponse cita = citas.crear(citaSinCuenta(enUnaSemana, LocalTime.of(10, 0)));
+            CitaResponse cita = citas.crear(citaSinCuenta(enUnaSemana, LocalTime.of(10, 0)), null);
             assertThat(cita.estado()).isEqualTo(EstadoCita.PENDIENTE);
             assertThat(cita.mascotaId()).isNull();
             assertThat(cita.nombreDueno()).isEqualTo("Pedro Soto");
@@ -113,17 +118,31 @@ class ReglasDeNegocioTest {
             Long pepe = mascotaRepo.findByDuenoIdOrderByNombreAsc(ana.getId()).stream()
                     .filter(m -> m.getNombre().equals("Pepe")).findFirst().orElseThrow().getId();
             CitaRequest datos = new CitaRequest(pepe, null, null, null, consulta.getId(), enUnaSemana, LocalTime.of(12, 0), null);
-            CitaResponse cita = citas.crear(datos);
+            CitaResponse cita = citas.crear(datos, new Actor(ana.getId(), Rol.CLIENTE));
             assertThat(cita.nombreMascota()).isEqualTo("Pepe");
             assertThat(cita.nombreDueno()).isEqualTo("Ana García");
             assertThat(cita.telefonoContacto()).isEqualTo("+56 9 8765 4321");
         }
 
         @Test
+        @DisplayName("Un cliente solo agenda para sus mascotas; sin sesión no se puede elegir una mascota registrada")
+        void mascotaAjena() {
+            Long pepe = mascotaRepo.findByDuenoIdOrderByNombreAsc(ana.getId()).get(0).getId();
+            CitaRequest conPepe = new CitaRequest(pepe, null, null, null, consulta.getId(), enUnaSemana, LocalTime.of(13, 0), null);
+
+            Usuario pedro = usuarioRepo.save(new Usuario("Pedro Soto", "pedro@correo.cl", "hash", null, Rol.CLIENTE));
+            assertThatThrownBy(() -> citas.crear(conPepe, new Actor(pedro.getId(), Rol.CLIENTE))).isInstanceOf(ApiException.NoEncontrado.class);
+            assertThatThrownBy(() -> citas.crear(conPepe, null)).isInstanceOf(ApiException.ReglaNegocio.class);
+            // El personal sí puede agendar para cualquier mascota.
+            assertThat(citas.crear(conPepe, personal).nombreMascota()).isEqualTo(
+                    mascotaRepo.findById(pepe).orElseThrow().getNombre());
+        }
+
+        @Test
         @DisplayName("Sin mascota registrada exige nombre de la mascota, del dueño y teléfono")
         void exigeContacto() {
             CitaRequest incompleta = new CitaRequest(null, " ", null, null, consulta.getId(), enUnaSemana, LocalTime.of(10, 0), null);
-            assertThatThrownBy(() -> citas.crear(incompleta))
+            assertThatThrownBy(() -> citas.crear(incompleta, null))
                     .isInstanceOf(ApiException.DatosInvalidos.class)
                     .satisfies(e -> assertThat(((ApiException) e).getErrores()).containsOnlyKeys("nombreMascota", "nombreDueno", "telefonoContacto"));
         }
@@ -131,7 +150,7 @@ class ReglasDeNegocioTest {
         @Test
         @DisplayName("No se agenda en el pasado")
         void noEnElPasado() {
-            assertThatThrownBy(() -> citas.crear(citaSinCuenta(LocalDate.now(reloj).minusDays(1), LocalTime.of(10, 0))))
+            assertThatThrownBy(() -> citas.crear(citaSinCuenta(LocalDate.now(reloj).minusDays(1), LocalTime.of(10, 0)), null))
                     .isInstanceOf(ApiException.ReglaNegocio.class)
                     .hasMessageContaining("ya pasó");
         }
@@ -139,41 +158,41 @@ class ReglasDeNegocioTest {
         @Test
         @DisplayName("No se agenda en un horario ocupado, pero una cita cancelada libera el horario")
         void horarioOcupado() {
-            CitaResponse primera = citas.crear(citaSinCuenta(enUnaSemana, LocalTime.of(10, 0)));
-            assertThatThrownBy(() -> citas.crear(citaSinCuenta(enUnaSemana, LocalTime.of(10, 0))))
+            CitaResponse primera = citas.crear(citaSinCuenta(enUnaSemana, LocalTime.of(10, 0)), null);
+            assertThatThrownBy(() -> citas.crear(citaSinCuenta(enUnaSemana, LocalTime.of(10, 0)), null))
                     .isInstanceOf(ApiException.Conflicto.class);
 
             citas.cambiarEstado(primera.id(), EstadoCita.CANCELADA);
-            assertThat(citas.crear(citaSinCuenta(enUnaSemana, LocalTime.of(10, 0))).id()).isNotNull();
+            assertThat(citas.crear(citaSinCuenta(enUnaSemana, LocalTime.of(10, 0)), null).id()).isNotNull();
         }
 
         @Test
         @DisplayName("Reagendar en el mismo horario no choca consigo misma")
         void reagendarMismaHora() {
-            CitaResponse cita = citas.crear(citaSinCuenta(enUnaSemana, LocalTime.of(15, 0)));
+            CitaResponse cita = citas.crear(citaSinCuenta(enUnaSemana, LocalTime.of(15, 0)), null);
             CitaRequest conNotas = new CitaRequest(null, "Luna", "Pedro Soto", "+56 9 1122 3344", consulta.getId(), enUnaSemana,
                     LocalTime.of(15, 0), "Trae su carnet de vacunas.");
-            assertThat(citas.actualizar(cita.id(), conNotas).notas()).isEqualTo("Trae su carnet de vacunas.");
+            assertThat(citas.actualizar(cita.id(), conNotas, personal).notas()).isEqualTo("Trae su carnet de vacunas.");
         }
 
         @Test
         @DisplayName("Solo se agendan servicios de la clínica, no artículos de la tienda")
         void soloServicios() {
             CitaRequest conArticulo = new CitaRequest(null, "Luna", "Pedro", "+56 9 1122 3344", collar.getId(), enUnaSemana, LocalTime.of(9, 0), null);
-            assertThatThrownBy(() -> citas.crear(conArticulo)).isInstanceOf(ApiException.ReglaNegocio.class);
+            assertThatThrownBy(() -> citas.crear(conArticulo, null)).isInstanceOf(ApiException.ReglaNegocio.class);
         }
 
         @Test
         @DisplayName("Los estados avanzan en orden y una cita completada no se modifica ni se elimina")
         void transiciones() {
-            Long id = citas.crear(citaSinCuenta(enUnaSemana, LocalTime.of(16, 0))).id();
+            Long id = citas.crear(citaSinCuenta(enUnaSemana, LocalTime.of(16, 0)), null).id();
             assertThatThrownBy(() -> citas.cambiarEstado(id, EstadoCita.COMPLETADA)).isInstanceOf(ApiException.Conflicto.class);
 
             citas.cambiarEstado(id, EstadoCita.CONFIRMADA);
             assertThat(citas.cambiarEstado(id, EstadoCita.COMPLETADA).estado()).isEqualTo(EstadoCita.COMPLETADA);
 
             assertThatThrownBy(() -> citas.cambiarEstado(id, EstadoCita.CANCELADA)).isInstanceOf(ApiException.Conflicto.class);
-            assertThatThrownBy(() -> citas.actualizar(id, citaSinCuenta(enUnaSemana, LocalTime.of(17, 0)))).isInstanceOf(ApiException.Conflicto.class);
+            assertThatThrownBy(() -> citas.actualizar(id, citaSinCuenta(enUnaSemana, LocalTime.of(17, 0)), personal)).isInstanceOf(ApiException.Conflicto.class);
             assertThatThrownBy(() -> citas.eliminar(id)).isInstanceOf(ApiException.Conflicto.class);
         }
     }
@@ -186,10 +205,10 @@ class ReglasDeNegocioTest {
         @DisplayName("Una compra aprobada crea la boleta con precios del servidor y descuenta el stock")
         void compraAprobada() {
             int stockAntes = collar.getStock();
-            CompraRequest datos = new CompraRequest(ana.getId(),
+            CompraRequest datos = new CompraRequest(
                     List.of(new ItemCompraRequest(collar.getId(), 2), new ItemCompraRequest(consulta.getId(), 1)), pagoNuevo(VISA, false));
 
-            BoletaResponse boleta = boletas.comprar(datos);
+            BoletaResponse boleta = boletas.comprar(ana.getId(), datos);
 
             assertThat(boleta.total()).isEqualTo(2 * 12990 + 25000);
             assertThat(boleta.estado()).isEqualTo(EstadoBoleta.PAGADA);
@@ -202,9 +221,9 @@ class ReglasDeNegocioTest {
         @Test
         @DisplayName("Si el mismo producto viene dos veces en el carrito, se suma en una sola línea")
         void sumaRepetidos() {
-            CompraRequest datos = new CompraRequest(ana.getId(),
+            CompraRequest datos = new CompraRequest(
                     List.of(new ItemCompraRequest(collar.getId(), 1), new ItemCompraRequest(collar.getId(), 2)), pagoNuevo(VISA, false));
-            BoletaResponse boleta = boletas.comprar(datos);
+            BoletaResponse boleta = boletas.comprar(ana.getId(), datos);
             assertThat(boleta.detalles()).hasSize(1);
             assertThat(boleta.detalles().get(0).cantidad()).isEqualTo(3);
         }
@@ -212,7 +231,7 @@ class ReglasDeNegocioTest {
         @Test
         @DisplayName("No se vende más que el stock disponible")
         void sinStock() {
-            assertThatThrownBy(() -> boletas.comprar(compra(collar.getId(), collar.getStock() + 1, pagoNuevo(VISA, false))))
+            assertThatThrownBy(() -> boletas.comprar(ana.getId(), compra(collar.getId(), collar.getStock() + 1, pagoNuevo(VISA, false))))
                     .isInstanceOf(ApiException.Conflicto.class)
                     .hasMessageContaining("Stock insuficiente");
         }
@@ -221,7 +240,7 @@ class ReglasDeNegocioTest {
         @DisplayName("Si el banco rechaza la tarjeta no se descuenta stock")
         void tarjetaRechazada() {
             int stockAntes = collar.getStock();
-            assertThatThrownBy(() -> boletas.comprar(compra(collar.getId(), 1, pagoNuevo(RECHAZADA, false))))
+            assertThatThrownBy(() -> boletas.comprar(ana.getId(), compra(collar.getId(), 1, pagoNuevo(RECHAZADA, false))))
                     .isInstanceOf(ApiException.PagoRechazado.class);
             assertThat(productoRepo.findById(collar.getId()).orElseThrow().getStock()).isEqualTo(stockAntes);
         }
@@ -230,7 +249,7 @@ class ReglasDeNegocioTest {
         @DisplayName("Una tarjeta mal escrita se rechaza con el error por campo")
         void tarjetaInvalida() {
             TarjetaRequest malEscrita = new TarjetaRequest("4111 1111 1111 1112", "Ana", "12/35");
-            assertThatThrownBy(() -> boletas.comprar(compra(collar.getId(), 1, pagoNuevo(malEscrita, false))))
+            assertThatThrownBy(() -> boletas.comprar(ana.getId(), compra(collar.getId(), 1, pagoNuevo(malEscrita, false))))
                     .isInstanceOf(ApiException.DatosInvalidos.class)
                     .satisfies(e -> assertThat(((ApiException) e).getErrores()).containsKey("tarjeta.numero"));
         }
@@ -238,7 +257,7 @@ class ReglasDeNegocioTest {
         @Test
         @DisplayName("Al guardar la tarjeta no se almacena el número completo ni el CVV")
         void guardaSoloDatosSeguros() {
-            boletas.comprar(compra(consulta.getId(), 1, pagoNuevo(VISA, true)));
+            boletas.comprar(ana.getId(), compra(consulta.getId(), 1, pagoNuevo(VISA, true)));
             var guardada = tarjetaRepo.findByUsuarioIdOrderByPredeterminadaDescIdDesc(ana.getId()).get(0);
             assertThat(guardada.getUltimos4()).isEqualTo("1111");
             assertThat(guardada.isPredeterminada()).isTrue();
@@ -249,30 +268,30 @@ class ReglasDeNegocioTest {
         @DisplayName("Con una tarjeta guardada solo se pide el CVV; no se puede usar la tarjeta de otro cliente")
         void tarjetaGuardada() {
             Long id = tarjetas.guardar(ana, VISA).tarjeta().id();
-            BoletaResponse boleta = boletas.comprar(compra(consulta.getId(), 1, new PagoRequest(id, null, "456", false)));
+            BoletaResponse boleta = boletas.comprar(ana.getId(), compra(consulta.getId(), 1, new PagoRequest(id, null, "456", false)));
             assertThat(boleta.medioPago().ultimos4()).isEqualTo("1111");
 
             Usuario otro = usuarioRepo.save(new Usuario("Pedro Soto", "pedro@correo.cl", "hash", null, Rol.CLIENTE));
-            CompraRequest ajena = new CompraRequest(otro.getId(), List.of(new ItemCompraRequest(consulta.getId(), 1)),
+            CompraRequest ajena = new CompraRequest(List.of(new ItemCompraRequest(consulta.getId(), 1)),
                     new PagoRequest(id, null, "456", false));
-            assertThatThrownBy(() -> boletas.comprar(ajena)).isInstanceOf(ApiException.NoEncontrado.class);
+            assertThatThrownBy(() -> boletas.comprar(otro.getId(), ajena)).isInstanceOf(ApiException.NoEncontrado.class);
         }
 
         @Test
         @DisplayName("Hay que elegir una tarjeta guardada o una nueva, no ambas")
         void unSoloMedioDePago() {
-            assertThatThrownBy(() -> boletas.comprar(compra(consulta.getId(), 1, new PagoRequest(null, null, "123", false))))
+            assertThatThrownBy(() -> boletas.comprar(ana.getId(), compra(consulta.getId(), 1, new PagoRequest(null, null, "123", false))))
                     .isInstanceOf(ApiException.DatosInvalidos.class);
         }
 
         @Test
         @DisplayName("El personal no compra con su cuenta y no se venden productos dados de baja")
         void restricciones() {
-            CompraRequest delAdmin = new CompraRequest(admin.getId(), List.of(new ItemCompraRequest(consulta.getId(), 1)), pagoNuevo(VISA, false));
-            assertThatThrownBy(() -> boletas.comprar(delAdmin)).isInstanceOf(ApiException.ReglaNegocio.class);
+            CompraRequest delAdmin = new CompraRequest(List.of(new ItemCompraRequest(consulta.getId(), 1)), pagoNuevo(VISA, false));
+            assertThatThrownBy(() -> boletas.comprar(admin.getId(), delAdmin)).isInstanceOf(ApiException.ReglaNegocio.class);
 
             productos.darDeBaja(collar.getId());
-            assertThatThrownBy(() -> boletas.comprar(compra(collar.getId(), 1, pagoNuevo(VISA, false))))
+            assertThatThrownBy(() -> boletas.comprar(ana.getId(), compra(collar.getId(), 1, pagoNuevo(VISA, false))))
                     .isInstanceOf(ApiException.ReglaNegocio.class)
                     .hasMessageContaining("ya no está disponible");
         }
@@ -281,7 +300,7 @@ class ReglasDeNegocioTest {
         @DisplayName("Anular una compra devuelve el stock y no se puede anular dos veces")
         void anular() {
             int stockAntes = collar.getStock();
-            Long id = boletas.comprar(compra(collar.getId(), 3, pagoNuevo(VISA, false))).id();
+            Long id = boletas.comprar(ana.getId(), compra(collar.getId(), 3, pagoNuevo(VISA, false))).id();
             assertThat(boletas.anular(id).estado()).isEqualTo(EstadoBoleta.ANULADA);
             assertThat(productoRepo.findById(collar.getId()).orElseThrow().getStock()).isEqualTo(stockAntes);
             assertThatThrownBy(() -> boletas.anular(id)).isInstanceOf(ApiException.Conflicto.class);
@@ -320,19 +339,30 @@ class ReglasDeNegocioTest {
         @DisplayName("El único administrador activo no se puede desactivar, eliminar ni degradar")
         void ultimoAdministrador() {
             Long id = admin.getId();
-            assertThatThrownBy(() -> usuarios.cambiarActivo(id, false)).isInstanceOf(ApiException.ReglaNegocio.class);
-            assertThatThrownBy(() -> usuarios.eliminar(id)).isInstanceOf(ApiException.ReglaNegocio.class);
+            assertThatThrownBy(() -> usuarios.cambiarActivo(id, false, recepcion.getId())).isInstanceOf(ApiException.ReglaNegocio.class);
+            assertThatThrownBy(() -> usuarios.eliminar(id, recepcion.getId())).isInstanceOf(ApiException.ReglaNegocio.class);
             UsuarioUpdateRequest degradar = new UsuarioUpdateRequest(admin.getNombre(), admin.getEmail(), null, Rol.CLIENTE);
-            assertThatThrownBy(() -> usuarios.actualizar(id, degradar)).isInstanceOf(ApiException.ReglaNegocio.class);
+            assertThatThrownBy(() -> usuarios.actualizar(id, degradar, recepcion.getId())).isInstanceOf(ApiException.ReglaNegocio.class);
 
             usuarios.crear(new UsuarioRequest("Segundo Admin", "admin2@sanmarcos.cl", "Clave1234", null, Rol.ADMIN));
-            assertThat(usuarios.cambiarActivo(id, false).activo()).isFalse();
+            assertThat(usuarios.cambiarActivo(id, false, recepcion.getId()).activo()).isFalse();
+        }
+
+        @Test
+        @DisplayName("Nadie puede desactivarse, eliminarse ni quitarse el rol de administrador a sí mismo")
+        void unoMismo() {
+            usuarios.crear(new UsuarioRequest("Segundo Admin", "admin2@sanmarcos.cl", "Clave1234", null, Rol.ADMIN));
+            Long id = admin.getId();
+            assertThatThrownBy(() -> usuarios.cambiarActivo(id, false, id)).hasMessageContaining("tu propia cuenta");
+            assertThatThrownBy(() -> usuarios.eliminar(id, id)).hasMessageContaining("tu propia cuenta");
+            UsuarioUpdateRequest degradar = new UsuarioUpdateRequest(admin.getNombre(), admin.getEmail(), null, Rol.CLIENTE);
+            assertThatThrownBy(() -> usuarios.actualizar(id, degradar, id)).hasMessageContaining("a ti mismo");
         }
 
         @Test
         @DisplayName("Una cuenta con historial no se elimina: hay que desactivarla")
         void conHistorial() {
-            assertThatThrownBy(() -> usuarios.eliminar(ana.getId()))
+            assertThatThrownBy(() -> usuarios.eliminar(ana.getId(), admin.getId()))
                     .isInstanceOf(ApiException.Conflicto.class)
                     .hasMessageContaining("Desactívala");
         }

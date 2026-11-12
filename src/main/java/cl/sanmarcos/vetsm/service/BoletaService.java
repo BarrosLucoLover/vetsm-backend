@@ -11,6 +11,7 @@ import cl.sanmarcos.vetsm.model.Producto;
 import cl.sanmarcos.vetsm.model.Rol;
 import cl.sanmarcos.vetsm.model.Usuario;
 import cl.sanmarcos.vetsm.repository.BoletaRepository;
+import cl.sanmarcos.vetsm.security.Actor;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,13 +54,22 @@ public class BoletaService {
         return boletas.findByClienteIdOrderByFechaDesc(clienteId).stream().map(BoletaResponse::desde).toList();
     }
 
+    /**
+     * El administrador ve cualquier boleta; un cliente, solo las suyas. Si un cliente pide una boleta
+     * ajena se responde 404 (no 403) para no revelar que ese número de boleta existe.
+     */
     @Transactional(readOnly = true)
-    public BoletaResponse obtener(Long id) {
-        return BoletaResponse.desde(buscar(id));
+    public BoletaResponse obtener(Long id, Actor actor) {
+        Boleta boleta = buscar(id);
+        if (!actor.esAdmin() && !boleta.getCliente().getId().equals(actor.id())) {
+            throw new ApiException.NoEncontrado("No existe la boleta " + id + ".");
+        }
+        return BoletaResponse.desde(boleta);
     }
 
-    public BoletaResponse comprar(CompraRequest compra) {
-        Usuario cliente = usuarios.buscar(compra.clienteId());
+    /** clienteId viene del token JWT: nadie puede comprar a nombre de otra persona. */
+    public BoletaResponse comprar(Long clienteId, CompraRequest compra) {
+        Usuario cliente = usuarios.buscar(clienteId);
         if (cliente.getRol() != Rol.CLIENTE) {
             throw new ApiException.ReglaNegocio("Las compras se realizan con una cuenta de cliente.");
         }

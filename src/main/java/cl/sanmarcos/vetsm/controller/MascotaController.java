@@ -2,6 +2,7 @@ package cl.sanmarcos.vetsm.controller;
 
 import cl.sanmarcos.vetsm.dto.MascotaRequest;
 import cl.sanmarcos.vetsm.dto.MascotaResponse;
+import cl.sanmarcos.vetsm.dto.MiMascotaRequest;
 import cl.sanmarcos.vetsm.exception.ErrorResponse;
 import cl.sanmarcos.vetsm.service.MascotaService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -14,6 +15,9 @@ import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,15 +29,33 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/** Pacientes: el personal gestiona todos (RF8); cada cliente ve y registra solo las suyas. */
 @RestController
 @RequestMapping("/api/v1/mascotas")
 @Tag(name = "Mascotas")
+@PreAuthorize("hasAnyRole('ADMIN', 'RECEPCIONISTA')")
 public class MascotaController {
 
     private final MascotaService servicio;
 
     public MascotaController(MascotaService servicio) {
         this.servicio = servicio;
+    }
+
+    @GetMapping("/mias")
+    @PreAuthorize("hasRole('CLIENTE')")
+    @Operation(summary = "Mis mascotas", description = "Rol: CLIENTE.")
+    public List<MascotaResponse> mias(@AuthenticationPrincipal Jwt jwt) {
+        return servicio.listar(Long.valueOf(jwt.getSubject()));
+    }
+
+    @PostMapping("/mias")
+    @PreAuthorize("hasRole('CLIENTE')")
+    @Operation(summary = "Registra una mascota mía", description = "Rol: CLIENTE. El dueño es quien inició sesión.")
+    @ApiResponse(responseCode = "201", description = "Registrada")
+    public ResponseEntity<MascotaResponse> registrarMia(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody MiMascotaRequest datos) {
+        MascotaResponse creada = servicio.crearPara(Long.valueOf(jwt.getSubject()), datos);
+        return Respuestas.creado(creada.id(), creada);
     }
 
     @GetMapping

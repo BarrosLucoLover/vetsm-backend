@@ -10,6 +10,7 @@ import cl.sanmarcos.vetsm.model.Rol;
 import cl.sanmarcos.vetsm.model.Usuario;
 import cl.sanmarcos.vetsm.repository.BoletaRepository;
 import cl.sanmarcos.vetsm.repository.MascotaRepository;
+import cl.sanmarcos.vetsm.repository.RefreshTokenRepository;
 import cl.sanmarcos.vetsm.repository.TarjetaRepository;
 import cl.sanmarcos.vetsm.repository.UsuarioRepository;
 import java.util.List;
@@ -26,14 +27,16 @@ public class UsuarioService {
     private final BoletaRepository boletas;
     private final MascotaRepository mascotas;
     private final TarjetaRepository tarjetas;
+    private final RefreshTokenRepository refreshTokens;
     private final PasswordEncoder passwordEncoder;
 
     public UsuarioService(UsuarioRepository usuarios, BoletaRepository boletas, MascotaRepository mascotas,
-            TarjetaRepository tarjetas, PasswordEncoder passwordEncoder) {
+            TarjetaRepository tarjetas, RefreshTokenRepository refreshTokens, PasswordEncoder passwordEncoder) {
         this.usuarios = usuarios;
         this.boletas = boletas;
         this.mascotas = mascotas;
         this.tarjetas = tarjetas;
+        this.refreshTokens = refreshTokens;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -61,9 +64,13 @@ public class UsuarioService {
         return UsuarioResponse.desde(usuarios.save(nuevo));
     }
 
-    public UsuarioResponse actualizar(Long id, UsuarioUpdateRequest datos) {
+    /** actorId: el administrador que hace el cambio (no puede quitarse a sí mismo el rol). */
+    public UsuarioResponse actualizar(Long id, UsuarioUpdateRequest datos, Long actorId) {
         Usuario usuario = buscar(id);
         if (usuario.getRol() == Rol.ADMIN && datos.rol() != Rol.ADMIN) {
+            if (id.equals(actorId)) {
+                throw new ApiException.ReglaNegocio("No puedes quitarte a ti mismo el rol de administrador.");
+            }
             exigirOtroAdministradorActivo(usuario, "quitarle el rol de administrador");
         }
         usuario.setNombre(datos.nombre().trim());
@@ -74,12 +81,19 @@ public class UsuarioService {
     }
 
     /** Activa o desactiva una cuenta. Una cuenta inactiva no puede iniciar sesión, pero conserva su historial. */
-    public UsuarioResponse cambiarActivo(Long id, boolean activo) {
+    public UsuarioResponse cambiarActivo(Long id, boolean activo, Long actorId) {
         Usuario usuario = buscar(id);
+        if (!activo && id.equals(actorId)) {
+            throw new ApiException.ReglaNegocio("No puedes desactivar tu propia cuenta.");
+        }
         if (!activo && usuario.getRol() == Rol.ADMIN && usuario.isActivo()) {
             exigirOtroAdministradorActivo(usuario, "desactivarlo");
         }
         usuario.setActivo(activo);
+        if (!activo) {
+            // Al desactivar, se cierran sus sesiones: ya no podrá renovar su token.
+            refreshTokens.findByUsuarioIdAndRevocadoFalse(id).forEach(t -> t.setRevocado(true));
+        }
         return UsuarioResponse.desde(usuario);
     }
 
@@ -87,8 +101,11 @@ public class UsuarioService {
      * Elimina una cuenta sin historial. Si el usuario ya compró o tiene mascotas registradas, se debe
      * desactivar en vez de eliminar, para no perder boletas ni fichas.
      */
-    public void eliminar(Long id) {
+    public void eliminar(Long id, Long actorId) {
         Usuario usuario = buscar(id);
+        if (id.equals(actorId)) {
+            throw new ApiException.ReglaNegocio("No puedes eliminar tu propia cuenta.");
+        }
         if (usuario.getRol() == Rol.ADMIN && usuario.isActivo()) {
             exigirOtroAdministradorActivo(usuario, "eliminarlo");
         }
@@ -97,6 +114,7 @@ public class UsuarioService {
                     + " tiene compras o mascotas registradas. Desactívala en lugar de eliminarla.");
         }
         tarjetas.deleteAll(tarjetas.findByUsuarioIdOrderByPredeterminadaDescIdDesc(id));
+        refreshTokens.deleteAll(refreshTokens.findByUsuarioId(id));
         usuarios.delete(usuario);
     }
 
