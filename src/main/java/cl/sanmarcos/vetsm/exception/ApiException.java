@@ -25,6 +25,13 @@ public abstract class ApiException extends RuntimeException {
         return errores;
     }
 
+    /** 401: no hay sesión válida (credenciales incorrectas, token vencido o revocado). */
+    public static class NoAutorizado extends ApiException {
+        public NoAutorizado(String mensaje) {
+            super(401, mensaje, null);
+        }
+    }
+
     /** 404: el registro pedido no existe. */
     public static class NoEncontrado extends ApiException {
         public NoEncontrado(String mensaje) {

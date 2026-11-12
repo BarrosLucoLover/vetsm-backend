@@ -11,6 +11,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -75,6 +77,17 @@ public class ManejadorErrores {
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ErrorResponse> rutaInexistente(NoResourceFoundException e, HttpServletRequest request) {
         return responder(404, "La ruta pedida no existe.", null, request);
+    }
+
+    /** 403: hay sesión, pero el rol no tiene permiso para ese endpoint (@PreAuthorize). */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> sinPermiso(AccessDeniedException e, HttpServletRequest request) {
+        return responder(403, "Tu cuenta no tiene permiso para realizar esta acción.", null, request);
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> sinSesion(AuthenticationException e, HttpServletRequest request) {
+        return responder(401, "Debes iniciar sesión para acceder a este recurso.", null, request);
     }
 
     /** Dos personas modificaron el mismo registro a la vez (por ejemplo, el stock del último artículo). */
