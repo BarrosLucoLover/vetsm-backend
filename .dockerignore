@@ -1,0 +1,10 @@
+# Lo que no se copia a la imagen al construir con Docker.
+**/target/
+.git/
+.idea/
+.vscode/
+.claude/
+.env
+wallet/
+Wallet_*/
+*.zip

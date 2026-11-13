@@ -1,198 +1,305 @@
-# VetSM Backend — Veterinaria San Marcos
+# VetSM Backend: microservicios de la Veterinaria San Marcos
 
-API REST de la Veterinaria San Marcos, desarrollada con Spring Boot para la asignatura
-DSY1104 Desarrollo Fullstack II (DuocUC). El frontend en React vive en un repositorio aparte.
-
-> Estado: fase 3 (API REST con Swagger, autenticación con JWT y permisos por rol). Falta
-> conectar el frontend (fase 4) y publicar en AWS con Oracle (fase 6).
-
-## Tecnologías
-
-- Java 17 y Spring Boot 4.1 (Web MVC, Data JPA, Validation, Security)
-- Spring Security OAuth2 Resource Server (JWT firmados con HS256 mediante Nimbus JOSE)
-- springdoc-openapi (Swagger UI)
-- Oracle Autonomous Database (OCI) como base de datos del proyecto
-- H2 en memoria (modo Oracle) para desarrollo local y pruebas
-- Maven Wrapper: no hace falta instalar Maven
+Backend de la Veterinaria San Marcos, desarrollado con Spring Boot para la asignatura DSY1104
+Desarrollo Fullstack II (DuocUC). Son **cuatro microservicios** detrás de un **API Gateway**, cada uno
+con su propia base de datos. El frontend en React vive en un repositorio aparte.
 
 ## Cómo ejecutar
 
-Con H2 en memoria (perfil por defecto, no requiere configuración):
+### Con Docker (recomendado: un solo comando)
+
+Requiere [Docker Desktop](https://www.docker.com/products/docker-desktop/).
 
 ```bash
-./mvnw spring-boot:run
+docker compose up --build
 ```
 
-Con Oracle (perfil `oracle`): define las variables de entorno de `.env.example`
-(`DB_URL`, `DB_USER`, `DB_PASSWORD`, `SEED_ADMIN_PASSWORD`, `SEED_RECEPCION_PASSWORD`) y ejecuta:
+La primera vez tarda unos minutos (descarga las dependencias y compila). Después:
+
+- **API (gateway):** <http://localhost:8080/api/v1/...>
+- **Swagger de los cuatro servicios:** <http://localhost:8080/swagger-ui.html> (selector arriba a la derecha)
+- **Frontend:** en el repositorio del frontend, `npm run dev` y abrir <http://localhost:3000>
+
+Para apagar todo: `docker compose down`.
+
+### Sin Docker
+
+Se compila todo y se levanta cada servicio en su puerto (en cuatro terminales):
 
 ```bash
-SPRING_PROFILES_ACTIVE=oracle ./mvnw spring-boot:run
+./mvnw clean package -DskipTests
+java -jar ms-usuarios/target/ms-usuarios.jar     # puerto 8081
+java -jar ms-catalogo/target/ms-catalogo.jar     # puerto 8082
+java -jar ms-ventas/target/ms-ventas.jar         # puerto 8083
+java -jar ms-agenda/target/ms-agenda.jar         # puerto 8084
 ```
 
-En Windows se usa `mvnw.cmd` en lugar de `./mvnw`.
+En el frontend se usa `npm run dev:sin-docker`, que reparte las rutas directo a cada puerto (sin
+gateway). En Windows se usa `mvnw.cmd` en lugar de `./mvnw`.
 
-Con la aplicación arriba:
+### Cuentas de demostración
 
-- **Swagger UI:** <http://localhost:8080/swagger-ui.html> — para los endpoints protegidos, ejecuta
-  `POST /api/v1/auth/login`, copia el `accessToken`, presiona **Authorize** y pégalo.
-- **Especificación OpenAPI:** <http://localhost:8080/v3/api-docs>
-- **Consola H2** (solo perfil `h2`): <http://localhost:8080/h2-console> (JDBC URL `jdbc:h2:mem:vetsm`, usuario `sa`)
+| Rol | Correo | Contraseña |
+|---|---|---|
+| Administrador | `admin@sanmarcos.cl` | `Admin123!` |
+| Recepcionista | `recepcion@sanmarcos.cl` | `Recep123!` |
+| Cliente | `ana.garcia@correo.cl` | `Cliente123!` |
+
+Solo existen en el perfil de desarrollo (`h2`); con Oracle las contraseñas iniciales vienen de variables de entorno.
 
 ## Arquitectura
 
-```text
-controller/   Endpoints REST: reciben y validan la petición (@Valid) y llaman al servicio
-service/      Lógica de negocio y transacciones; devuelven DTOs
-repository/   Acceso a la base de datos con Spring Data JPA
-model/        Entidades JPA (tablas)
-dto/          Lo que la API recibe y devuelve (nunca expone contraseñas)
-exception/    Errores controlados y el manejador que los convierte en JSON
-security/     Tokens JWT y de renovación, cookie de sesión y respuestas 401/403
-config/       Swagger, reglas de seguridad, CORS, reloj, cifrado de contraseñas y datos iniciales
+```mermaid
+flowchart LR
+    N["Navegador<br/>(React)"] -->|"/api/v1/..."| G["API Gateway<br/>Nginx · puerto 8080"]
+    G --> U["ms-usuarios<br/>8081"]
+    G --> C["ms-catalogo<br/>8082"]
+    G --> V["ms-ventas<br/>8083"]
+    G --> A["ms-agenda<br/>8084"]
+    V -->|"reservar / devolver stock"| C
+    A -->|"¿el servicio existe?"| C
+    A -->|"datos del dueño"| U
+    U -->|"¿tiene compras o mascotas?"| V
+    U -->|"¿tiene compras o mascotas?"| A
+    U --- BU[("BD usuarios")]
+    C --- BC[("BD catálogo")]
+    V --- BV[("BD ventas")]
+    A --- BA[("BD agenda")]
 ```
 
-## Modelo de datos
+| Servicio | Responsabilidad | Tablas propias | Llama a |
+|---|---|---|---|
+| **ms-usuarios** | Cuentas, inicio de sesión, **emisión de los JWT**, renovación de sesión y perfil | `usuario`, `refresh_token` | ms-ventas y ms-agenda (antes de eliminar una cuenta) |
+| **ms-catalogo** | Categorías, servicios de la clínica, artículos y **stock** | `categoria`, `producto` | Ninguno |
+| **ms-ventas** | Compras (boletas), pago simulado y tarjetas guardadas | `boleta`, `detalle_boleta`, `tarjeta` | ms-catalogo (reservar y devolver stock) |
+| **ms-agenda** | Citas de la clínica y mascotas (pacientes) | `cita`, `mascota` | ms-catalogo (validar el servicio) y ms-usuarios (datos del dueño) |
+| **gateway** | Única puerta de entrada: reparte cada ruta a su servicio | Ninguna | Los cuatro |
 
-| Tabla | Descripción |
-|---|---|
-| `usuario` | Personas que usan el sistema. Rol: `ADMIN`, `RECEPCIONISTA` o `CLIENTE`. Contraseña con hash BCrypt. Incluye los datos de perfil (región, comuna, dirección, avatar). |
-| `mascota` | Pacientes de la clínica. Cada una pertenece a un cliente. |
-| `categoria` | Agrupa los productos de la tienda. |
-| `producto` | Lo que se vende: servicios de la clínica (sin stock, con duración) y artículos (con stock). |
-| `cita` | Hora agendada para un servicio. Puede ser de una mascota registrada o una solicitud sin cuenta (solo datos de contacto). |
-| `boleta` | Compra de un cliente, con el medio de pago (solo marca, últimos 4 dígitos y código de autorización). |
-| `detalle_boleta` | Líneas de la boleta: producto, cantidad y precio al momento de la compra. |
-| `tarjeta` | Tarjetas guardadas de un cliente: marca, últimos 4 dígitos, titular y vencimiento. **Nunca el número completo ni el CVV.** |
-| `refresh_token` | Sesiones abiertas: hash SHA-256 del token de renovación, vencimiento y si fue revocado. |
+Además hay un módulo **`comun`**: una librería (no un servicio) con lo que todos necesitan igual: el
+formato de errores, la verificación del JWT, los roles, la configuración de seguridad y el cliente
+HTTP para llamar a otro servicio. No tiene lógica de negocio.
 
-Relaciones: `usuario 1—N mascota`, `mascota 1—N cita`, `producto 1—N cita`, `categoria 1—N producto`,
-`usuario 1—N boleta`, `boleta 1—N detalle_boleta`, `producto 1—N detalle_boleta`, `usuario 1—N tarjeta`,
-`usuario 1—N refresh_token`.
+### Por qué cuatro microservicios
+
+La división sigue los **contextos de negocio** de la clínica (en DDD, *bounded contexts*): cada
+servicio agrupa lo que cambia junto, lo usa el mismo tipo de persona y comparte las mismas reglas.
+Cada uno es **dueño de sus datos**: ningún servicio lee las tablas de otro, solo su API.
+
+1. **ms-usuarios: identidad y acceso.** Es el único que guarda contraseñas y el único que firma
+   tokens. Aislarlo reduce el riesgo: el código que toca credenciales está en un solo lugar. Los
+   demás servicios solo verifican el token, así que siguen funcionando aunque ms-usuarios se reinicie.
+2. **ms-catalogo: catálogo e inventario.** Es lo más consultado (cada visita a la tienda lo lee, sin
+   iniciar sesión). Separarlo permite escalarlo solo a él. Es el único dueño del stock: así nunca
+   hay dos servicios descontando el mismo producto.
+3. **ms-ventas: compras y pagos.** Maneja dinero y datos de tarjetas. Separarlo limita qué parte
+   del sistema toca información de pago (en un sistema real, menos código que certificar en PCI DSS).
+   Boletas, pagos y tarjetas van juntos porque una compra los usa en la misma operación.
+4. **ms-agenda: atención clínica.** Citas y mascotas las usa la recepción, con reglas propias
+   (horarios ocupados, estados de una cita). Van juntas porque una cita apunta a una mascota y se
+   validan en la misma transacción.
+
+**Por qué no más.** Separar por ejemplo pagos de boletas, o mascotas de citas, obligaría a una
+llamada por red y a una transacción distribuida en operaciones que hoy son una sola (comprar,
+agendar). Más servicios no aportarían independencia real y sí más puntos de falla. Los reportes
+tampoco son un servicio: cada servicio entrega el reporte de sus propios datos y el panel del
+administrador los junta (composición en el cliente).
+
+**Por qué no menos.** Con dos o tres servicios quedarían mezcladas cosas con razones de cambio y
+riesgos distintos: por ejemplo, contraseñas con pagos, o el catálogo público (mucho tráfico) con
+las compras (pocas, pero críticas).
+
+### Comunicación entre servicios
+
+- **REST síncrono.** Cada servicio llama a otro por HTTP con `RestClient` (base `ClienteInterno`
+  del módulo común), con tiempos de espera cortos.
+- **Endpoints internos.** Las llamadas entre servicios van a rutas `/internal/v1/...`. Exigen un
+  **token de servicio**: un JWT con rol `SERVICIO`, firmado con el mismo secreto y válido por un
+  minuto. Ningún usuario, ni siquiera un administrador, puede usarlas. Además el gateway no las
+  publica: desde internet no existen.
+- **Errores entre servicios.** Si ms-catalogo responde "Stock insuficiente" (409), ms-ventas
+  reenvía el mismo código y mensaje al navegador. Si un servicio no responde, se contesta **503**
+  con un mensaje claro, en vez de un error genérico.
+- **Copias de datos.** Cuando un dato de otro servicio se necesita para mostrar algo, se guarda una
+  copia al momento de crear el registro. Por ejemplo, la boleta guarda el nombre del cliente
+  (sacado del token) y el nombre y precio de cada producto; la cita guarda el nombre del servicio.
+  Así la agenda se puede listar aunque ms-catalogo esté caído, y la boleta no cambia si después
+  sube un precio.
+
+### Una compra entre servicios (saga con compensación)
+
+El stock está en ms-catalogo y la boleta en ms-ventas: no puede ser una sola transacción de base de
+datos. Se usa una **saga** con una **acción compensatoria**:
+
+```mermaid
+sequenceDiagram
+    participant F as Frontend
+    participant V as ms-ventas
+    participant C as ms-catalogo
+    F->>V: POST /api/v1/boletas (JWT del cliente)
+    V->>V: 0. Validar la tarjeta (sin cobrar)
+    V->>C: 1. POST /internal/v1/inventario/reservas
+    C-->>V: Stock descontado + nombre y precio actual de cada producto
+    V->>V: 2. Cobrar (pasarela simulada) y guardar la boleta
+    alt El cobro falla
+        V->>C: 3. POST /internal/v1/inventario/devoluciones (compensación)
+        V-->>F: 402 El banco rechazó la tarjeta
+    else Todo bien
+        V-->>F: 201 Boleta creada
+    end
+```
+
+La reserva es "todo o nada": si falta stock de un producto, ms-catalogo no descuenta ninguno.
+`@Version` en `producto` (bloqueo optimista) evita vender dos veces la última unidad.
+
+## Tecnologías
+
+- Java 17 y Spring Boot 4.1 (Web MVC, Data JPA, Validation, Security), proyecto Maven multimódulo
+- Spring Security OAuth2 Resource Server (JWT firmados con HS256 mediante Nimbus JOSE)
+- springdoc-openapi (Swagger UI)
+- Oracle Autonomous Database (OCI) en producción; H2 en memoria (modo Oracle) en desarrollo y pruebas
+- Docker y Docker Compose; Nginx como API Gateway
+- Maven Wrapper: no hace falta instalar Maven
+
+## Estructura del repositorio
+
+```text
+pom.xml               Proyecto padre: declara los módulos y las dependencias comunes
+comun/                Librería compartida: errores, JWT, roles, seguridad base, cliente entre servicios
+ms-usuarios/          Microservicio de usuarios (cada uno: controller, service, repository, model, dto, config)
+ms-catalogo/          Microservicio de catálogo
+ms-ventas/            Microservicio de ventas
+ms-agenda/            Microservicio de agenda
+gateway/nginx.conf    Rutas del API Gateway
+Dockerfile            Receta para construir cualquiera de los servicios (argumento MODULO)
+docker-compose.yml    Levanta los cuatro servicios y el gateway
+.env.example          Variables para Oracle (copiar como .env)
+```
+
+Dentro de cada servicio se mantienen las capas: `controller` (endpoints REST), `service` (reglas
+de negocio y transacciones), `repository` (Spring Data JPA), `model` (entidades), `dto` (lo que entra
+y sale por la API), `cliente` (llamadas a otros servicios) y `config`.
 
 ## Endpoints (`/api/v1`) y permisos
 
-| Recurso | Endpoints | Quién |
+| Servicio | Endpoints | Quién |
 |---|---|---|
-| Autenticación | `POST /auth/login` · `POST /auth/registro` · `POST /auth/refresh` · `POST /auth/logout` | Público |
-| Mi cuenta | `GET /perfil` · `PUT /perfil` · `PUT /perfil/password` | Cualquier usuario con sesión |
-| Mis tarjetas | `GET /tarjetas` · `POST /tarjetas` · `PATCH /tarjetas/{id}/predeterminada` · `DELETE /tarjetas/{id}` | `CLIENTE` (solo las suyas) |
-| Categorías | `GET /categorias` · `GET /categorias/{id}` | Público |
-| | `POST /categorias` · `PUT /categorias/{id}` · `DELETE /categorias/{id}` | `ADMIN` |
-| Productos | `GET /productos?categoriaId=&tipo=` · `GET /productos/{id}` | Público |
-| | `POST /productos` · `PUT /productos/{id}` · `DELETE /productos/{id}` (baja lógica) | `ADMIN` |
-| Usuarios | `GET /usuarios?rol=` · `GET /usuarios/{id}` · `POST /usuarios` · `PUT /usuarios/{id}` · `PATCH /usuarios/{id}/activo` · `DELETE /usuarios/{id}` | `ADMIN` |
-| Mascotas | `GET /mascotas/mias` · `POST /mascotas/mias` | `CLIENTE` |
-| | `GET /mascotas?duenoId=` · `GET /mascotas/{id}` · `POST /mascotas` · `PUT /mascotas/{id}` · `DELETE /mascotas/{id}` | `ADMIN`, `RECEPCIONISTA` |
-| Citas | `POST /citas` | Público (con sesión de cliente puede usar sus mascotas) |
-| | `GET /citas/mias` | `CLIENTE` |
-| | `GET /citas?estado=&fecha=` · `GET /citas/{id}` · `PUT /citas/{id}` · `PATCH /citas/{id}/estado` · `DELETE /citas/{id}` | `ADMIN`, `RECEPCIONISTA` |
-| Boletas | `POST /boletas` (comprar y pagar) · `GET /boletas/mias` | `CLIENTE` |
+| ms-usuarios | `POST /auth/login` · `/auth/registro` · `/auth/refresh` · `/auth/logout` | Público |
+| | `GET /perfil` · `PUT /perfil` · `PUT /perfil/password` | Cualquier usuario con sesión |
+| | `GET /usuarios?rol=` · `GET /usuarios/{id}` · `POST /usuarios` · `PUT /usuarios/{id}` · `PATCH /usuarios/{id}/activo` · `DELETE /usuarios/{id}` | `ADMIN` |
+| | `GET /reportes/usuarios` | `ADMIN` |
+| ms-catalogo | `GET /categorias` · `GET /categorias/{id}` · `GET /productos?categoriaId=&tipo=` · `GET /productos/{id}` | Público |
+| | `POST /categorias` · `PUT /categorias/{id}` · `DELETE /categorias/{id}` · `POST /productos` · `PUT /productos/{id}` · `DELETE /productos/{id}` (baja lógica) | `ADMIN` |
+| | `GET /reportes/inventario` | `ADMIN` |
+| ms-ventas | `POST /boletas` (comprar y pagar) · `GET /boletas/mias` · `GET /tarjetas` · `POST /tarjetas` · `PATCH /tarjetas/{id}/predeterminada` · `DELETE /tarjetas/{id}` | `CLIENTE` (solo lo suyo) |
 | | `GET /boletas/{id}` | `ADMIN` (todas), `CLIENTE` (solo las suyas) |
-| | `GET /boletas` · `PATCH /boletas/{id}/anular` | `ADMIN` |
-| Reportes | `GET /reportes/resumen` | `ADMIN` |
+| | `GET /boletas` · `PATCH /boletas/{id}/anular` · `GET /reportes/ventas` | `ADMIN` |
+| ms-agenda | `POST /citas` | Público (con sesión de cliente puede usar sus mascotas) |
+| | `GET /citas/mias` · `GET /mascotas/mias` · `POST /mascotas/mias` | `CLIENTE` |
+| | `GET /citas?estado=&fecha=` · `GET /citas/{id}` · `PUT /citas/{id}` · `PATCH /citas/{id}/estado` · `DELETE /citas/{id}` · CRUD de `/mascotas` | `ADMIN`, `RECEPCIONISTA` |
+| | `GET /reportes/citas` | `ADMIN` |
 
-Cada endpoint está documentado en Swagger con su descripción, sus datos de entrada, sus posibles
-respuestas y el rol que lo puede usar.
+Endpoints internos (solo rol `SERVICIO`, no pasan por el gateway): `GET /internal/v1/usuarios/{id}`,
+`POST /internal/v1/inventario/reservas`, `POST /internal/v1/inventario/devoluciones`,
+`GET /internal/v1/clientes/{id}/referencias` (ventas y agenda) y `DELETE /internal/v1/clientes/{id}/tarjetas`.
 
 ## Seguridad
 
-### Autenticación con JWT
+### JWT en una arquitectura de microservicios
 
-1. `POST /auth/login` verifica el correo y la contraseña (contra el hash BCrypt) y entrega dos tokens:
-   - **Token de acceso (JWT):** en el cuerpo de la respuesta. Dura **15 minutos**. Lleva el id del
-     usuario (`sub`), su rol (`rol`), su nombre y correo, el emisor (`iss`) y el vencimiento (`exp`).
-     El frontend lo envía en cada petición: `Authorization: Bearer <token>`.
+1. **Generación (solo ms-usuarios).** `POST /auth/login` verifica la contraseña (hash BCrypt) y entrega:
+   - **Token de acceso (JWT):** dura **15 minutos**. Lleva el id del usuario (`sub`), su `rol`, su
+     `nombre` y `email`, el emisor (`iss`) y el vencimiento (`exp`), firmado con **HMAC-SHA256**.
    - **Token de renovación:** en una cookie `HttpOnly`, `SameSite=Strict`, limitada a `/api/v1/auth`.
-     Dura **7 días** y permite mantener la sesión al recargar la página sin pedir la contraseña.
-2. **Generación:** el JWT se firma con **HMAC-SHA256** usando un secreto que solo conoce el servidor
-   (`JWT_SECRET`, mínimo 32 caracteres; sin él la aplicación no arranca en producción).
-3. **Verificación:** en cada petición, Spring Security comprueba la firma, el vencimiento y el emisor.
-   Un token alterado (por ejemplo, con el rol cambiado), vencido o de otro sistema recibe `401`.
-4. **Renovación:** `POST /auth/refresh` cambia la cookie por una nueva y entrega un JWT nuevo
-   (**rotación**: cada token de renovación sirve una sola vez). Si un token ya usado vuelve a
-   aparecer, se asume que fue robado y **se cierran todas las sesiones** de esa cuenta. Excepción:
-   si reaparece menos de 10 segundos después de cambiarse (`app.jwt.segundos-gracia`), lo más
-   probable es que dos pestañas del mismo navegador hayan renovado a la vez; ese intento recibe
-   `401`, pero no se cierran las demás sesiones.
-5. **Revocación:** cerrar sesión, cambiar la contraseña o desactivar la cuenta revoca los tokens de
-   renovación. En la base de datos solo se guarda su hash SHA-256.
+     Dura **7 días** y mantiene la sesión al recargar la página.
+2. **Verificación (los cuatro servicios).** Cada servicio comprueba la firma, el vencimiento y el
+   emisor con el mismo secreto (`JWT_SECRET`), **sin preguntarle a ms-usuarios**. Un token alterado
+   (por ejemplo, con el rol cambiado), vencido o de otro sistema recibe `401`.
+3. **Renovación (ms-usuarios).** `POST /auth/refresh` cambia la cookie por una nueva y entrega un JWT
+   nuevo (**rotación**). Si un token ya usado reaparece, se asume robado y se cierran todas las
+   sesiones de la cuenta; si reaparece en menos de 10 segundos se toma como dos pestañas renovando a
+   la vez y solo se rechaza ese intento.
+4. **Revocación.** Cerrar sesión, cambiar la contraseña o desactivar la cuenta revoca los tokens de
+   renovación. En la base solo se guarda su hash SHA-256.
 
 ### Autorización por rol
 
-- En `SecurityConfig` se declaran las rutas públicas; todo lo demás exige un token válido.
-- En cada controlador, `@PreAuthorize` indica el rol permitido (`hasRole('ADMIN')`,
-  `hasAnyRole('ADMIN', 'RECEPCIONISTA')`, `hasRole('CLIENTE')`). Sin el rol se responde `403`.
-- Los datos propios se toman **del token, no de la URL**: un cliente solo ve y usa sus tarjetas,
-  compras, mascotas y citas. Pedir un recurso ajeno responde `404`, sin revelar que existe.
-- Nadie puede desactivarse, eliminarse ni quitarse el rol de administrador a sí mismo.
+- `SeguridadBase` (módulo común) arma la cadena de Spring Security; cada servicio solo declara sus
+  rutas públicas. Todo lo demás exige token.
+- Cada endpoint usa `@PreAuthorize` (`hasRole('ADMIN')`, `hasAnyRole('ADMIN', 'RECEPCIONISTA')`,
+  `hasRole('CLIENTE')`, `hasRole('SERVICIO')`). Sin el rol se responde `403`.
+- Los datos propios se toman **del token, no de la URL**: un cliente solo ve sus tarjetas, compras,
+  mascotas y citas; un recurso ajeno responde `404`, sin revelar que existe.
 
 ### Otras medidas
 
-- Contraseñas con **BCrypt**. El login responde igual si el correo no existe o si la contraseña es
-  incorrecta, y tarda lo mismo, para no revelar qué correos están registrados.
-- **CORS**: solo el frontend configurado en `CORS_ORIGENES` puede llamar a la API desde el navegador.
+- El login responde igual (y tarda lo mismo) si el correo no existe o si la contraseña es incorrecta.
+- Solo el gateway publica un puerto; los servicios quedan en la red interna de Docker.
 - API sin estado (`STATELESS`); CSRF desactivado porque el token viaja en una cabecera y la cookie es `SameSite=Strict`.
-- Errores `401` y `403` en JSON con el mismo formato que el resto de la API.
+- CORS limitado al frontend configurado (`CORS_ORIGENES`).
 
-### Variables de entorno (producción)
+### Mejoras posibles (fuera del alcance de la evaluación)
 
-| Variable | Para qué |
-|---|---|
-| `JWT_SECRET` | Firma de los tokens (mínimo 32 caracteres; por ejemplo `openssl rand -base64 48`) |
-| `CORS_ORIGENES` | Dirección del frontend, por ejemplo `http://mi-dominio.cl` |
-| `JWT_COOKIE_SEGURA` | `true` cuando el sitio use HTTPS |
+- Firmar con **RS256**: ms-usuarios con la clave privada y los demás solo con la pública, para que
+  ningún otro servicio pueda emitir tokens.
+- **Circuit breaker** (Resilience4j) y reintentos en las llamadas entre servicios.
+- Mensajería asíncrona (por ejemplo, RabbitMQ) para actualizar las copias de datos cuando cambian.
 
-### Códigos de respuesta
+## Códigos de respuesta
 
 | Código | Cuándo |
 |---|---|
-| `200 OK` / `201 Created` / `204 No Content` | Operación exitosa (`201` incluye la cabecera `Location`) |
+| `200` / `201` / `204` | Operación exitosa (`201` incluye la cabecera `Location`) |
 | `400 Bad Request` | Datos inválidos: el cuerpo trae un mensaje por campo en `errores` |
 | `401 Unauthorized` | Sin sesión, credenciales incorrectas o token alterado, vencido o revocado |
 | `402 Payment Required` | El banco (simulado) rechazó la tarjeta |
 | `403 Forbidden` | Con sesión, pero el rol no tiene permiso |
 | `404 Not Found` | El registro no existe |
-| `409 Conflict` | Choca con los datos actuales: correo duplicado, horario ocupado, sin stock, transición de estado no permitida |
+| `409 Conflict` | Correo duplicado, horario ocupado, sin stock, transición de estado no permitida |
 | `422 Unprocessable Content` | Regla de negocio: fecha pasada, producto no disponible, único administrador |
+| `503 Service Unavailable` | Otro microservicio necesario para la operación no responde |
 
-Todos los errores tienen el mismo formato:
+Todos los errores, de cualquier servicio, tienen el mismo formato:
 
 ```json
 {
-  "timestamp": "2026-11-11T14:30:00Z",
+  "timestamp": "2026-11-13T14:30:00Z",
   "status": 409,
   "error": "Conflict",
-  "mensaje": "Ya hay una cita agendada el 2026-12-01 a las 10:30. Elige otro horario.",
-  "ruta": "/api/v1/citas",
+  "mensaje": "Stock insuficiente de \"Collar antipulgas\": quedan 1 y pediste 2.",
+  "ruta": "/api/v1/boletas",
   "errores": null
 }
 ```
 
 ## Reglas de negocio
 
-**Citas**
-- No se agenda en el pasado (con la hora de Chile, aunque el servidor esté en UTC) ni en un horario ocupado; una cita cancelada libera su horario.
-- Solo se agendan servicios de la clínica que estén activos.
-- Los estados avanzan en orden: `PENDIENTE → CONFIRMADA → COMPLETADA`, y se puede cancelar antes de completar.
-- Una cita completada o cancelada no se edita; una completada no se elimina (historial clínico).
+**Citas (ms-agenda)**: no se agenda en el pasado (hora de Chile) ni en un horario ocupado; una cita
+cancelada libera su horario. Solo se agendan servicios activos de la clínica (lo confirma ms-catalogo).
+Estados: `PENDIENTE → CONFIRMADA → COMPLETADA`, y se puede cancelar antes de completar. Una cita
+completada no se edita ni se elimina (historial clínico).
 
-**Compras**
-- Los precios los pone el servidor desde la base de datos; el navegador solo envía productos y cantidades.
-- No se vende más que el stock, ni productos dados de baja, ni con una cuenta del personal.
-- Todo ocurre en una transacción: si el pago se rechaza, no se descuenta stock ni queda una boleta.
-- `@Version` en `producto` evita vender dos veces la última unidad si dos clientes compran a la vez.
-- Anular una boleta devuelve el stock.
+**Compras (ms-ventas + ms-catalogo)**: los precios los entrega ms-catalogo desde su base; el
+navegador solo envía productos y cantidades. No se vende más que el stock, ni productos dados de
+baja, ni con una cuenta del personal. Si el pago se rechaza, se devuelve el stock reservado. Anular
+una boleta devuelve el stock.
 
-**Pago (simulado)**
-- Se valida la tarjeta igual que en el frontend: marca, algoritmo de Luhn, vencimiento y largo del CVV.
-- Tarjetas de prueba: `4111 1111 1111 1111` (aprobada) y `4000 0000 0000 0002` (rechazada), con vencimiento futuro.
-- Nunca se guarda ni se devuelve el número completo ni el CVV. Una tarjeta guardada solo se puede usar por su dueño.
+**Pago (simulado)**: se valida la marca, el algoritmo de Luhn, el vencimiento y el largo del CVV.
+Tarjetas de prueba: `4111 1111 1111 1111` (aprobada) y `4000 0000 0000 0002` (rechazada). Nunca se
+guarda ni se devuelve el número completo ni el CVV.
 
-**Usuarios**
-- El correo es único y se guarda en minúsculas. El registro público siempre crea clientes.
-- El sistema nunca queda sin un administrador activo.
-- Una cuenta con compras o mascotas no se elimina: se desactiva.
+**Usuarios (ms-usuarios)**: el correo es único y se guarda en minúsculas; el registro público
+siempre crea clientes; el sistema nunca queda sin un administrador activo; una cuenta con compras o
+mascotas (según ms-ventas y ms-agenda) no se elimina, se desactiva.
+
+## Base de datos
+
+Cada servicio tiene **su propia base**:
+
+- **Perfil `h2`** (por defecto): una base H2 en memoria por servicio (`jdbc:h2:mem:usuarios`,
+  `catalogo`, `ventas`, `agenda`). Se crea con datos de demostración y se borra al apagar.
+- **Perfil `oracle`**: una Oracle Autonomous Database en OCI con **un usuario (esquema) por servicio**
+  (`VETSM_USUARIOS`, `VETSM_CATALOGO`, `VETSM_VENTAS`, `VETSM_AGENDA`). Ningún esquema ve las tablas
+  de otro. Los datos de conexión van en `.env` (ver `.env.example`), que no se sube a git.
 
 ## Pruebas
 
@@ -200,23 +307,19 @@ Todos los errores tienen el mismo formato:
 ./mvnw test
 ```
 
-89 pruebas sobre H2 en memoria (no necesitan Oracle):
+107 pruebas sobre H2 en memoria (no necesitan Oracle ni Docker). Cada servicio se prueba solo: las
+llamadas a otros servicios se simulan con Mockito (`@MockitoBean`) y los tokens se crean con la base
+`PruebaConToken` del módulo común.
 
-- `ReglasDelModeloTest` y `ValidadorTarjetaTest`: reglas puras, sin base de datos.
-- `RepositoriosTest`: consultas JPA.
-- `SeguridadTest`: login, tokens alterados o vencidos, permisos por rol, rotación de la renovación
-  con detección de robo, cierre de sesión, CORS y acceso solo a los datos propios.
-- `ReglasDeNegocioTest`: cada regla de citas, compras, pagos, usuarios y catálogo.
-- `ApiRestTest`: la API por HTTP (códigos, JSON, errores y Swagger).
-
-## Datos iniciales
-
-Al arrancar sobre una base vacía se crean las cuentas del personal (administrador y recepcionista)
-y el catálogo de la tienda. Las contraseñas iniciales se toman de la configuración: en el perfil
-`h2` son de demostración (ver `application-h2.properties`) y en el perfil `oracle` vienen de
-variables de entorno.
+| Módulo | Pruebas | Qué cubren |
+|---|---|---|
+| comun | 3 | Cliente entre servicios: envía el token de servicio, reenvía errores y responde 503 si el otro no contesta |
+| ms-usuarios | 40 | Login, contenido del token, tokens alterados o vencidos, rotación, robo, permisos, CORS, reglas de cuentas, Swagger |
+| ms-catalogo | 16 | Catálogo público, CRUD del administrador, reserva de stock todo o nada, devolución, endpoints internos |
+| ms-ventas | 25 | Compra entre servicios, compensación si el pago falla, tarjetas, datos propios, reporte |
+| ms-agenda | 23 | Reglas de citas y estados, mascotas, consulta a otros servicios, permisos, reporte |
 
 ## Seguridad de las credenciales
 
 El wallet de Oracle, el archivo `.env` y cualquier contraseña real **no se suben al repositorio**
-(están en `.gitignore`).
+(están en `.gitignore` y `.dockerignore`).
