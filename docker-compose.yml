@@ -7,16 +7,36 @@
 name: vetsm
 
 services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-RootVetsm2026!}
+      MYSQL_USER: vetsm
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-VetsmDb2026!}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-RootVetsm2026!}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   ms-usuarios:
     build:
       context: .
       args:
         MODULO: ms-usuarios
     restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${PERFIL:-h2}
       JWT_SECRET: ${JWT_SECRET:-}
       JWT_COOKIE_SEGURA: ${JWT_COOKIE_SEGURA:-false}
+      CORS_ORIGENES: ${CORS_ORIGENES:-http://localhost:3000,http://localhost:5173}
       DB_URL: ${USUARIOS_DB_URL:-}
       DB_USER: ${USUARIOS_DB_USER:-}
       DB_PASSWORD: ${USUARIOS_DB_PASSWORD:-}
@@ -31,9 +51,13 @@ services:
       args:
         MODULO: ms-catalogo
     restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${PERFIL:-h2}
       JWT_SECRET: ${JWT_SECRET:-}
+      CORS_ORIGENES: ${CORS_ORIGENES:-http://localhost:3000,http://localhost:5173}
       DB_URL: ${CATALOGO_DB_URL:-}
       DB_USER: ${CATALOGO_DB_USER:-}
       DB_PASSWORD: ${CATALOGO_DB_PASSWORD:-}
@@ -44,9 +68,13 @@ services:
       args:
         MODULO: ms-ventas
     restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${PERFIL:-h2}
       JWT_SECRET: ${JWT_SECRET:-}
+      CORS_ORIGENES: ${CORS_ORIGENES:-http://localhost:3000,http://localhost:5173}
       DB_URL: ${VENTAS_DB_URL:-}
       DB_USER: ${VENTAS_DB_USER:-}
       DB_PASSWORD: ${VENTAS_DB_PASSWORD:-}
@@ -58,16 +86,19 @@ services:
       args:
         MODULO: ms-agenda
     restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${PERFIL:-h2}
       JWT_SECRET: ${JWT_SECRET:-}
+      CORS_ORIGENES: ${CORS_ORIGENES:-http://localhost:3000,http://localhost:5173}
       DB_URL: ${AGENDA_DB_URL:-}
       DB_USER: ${AGENDA_DB_USER:-}
       DB_PASSWORD: ${AGENDA_DB_PASSWORD:-}
       CATALOGO_URL: http://ms-catalogo:8082
       USUARIOS_URL: http://ms-usuarios:8081
 
-  # Única puerta de entrada: es el único contenedor con un puerto publicado hacia afuera.
   gateway:
     image: nginx:1.27-alpine
     restart: unless-stopped
@@ -80,3 +111,6 @@ services:
       - ms-catalogo
       - ms-ventas
       - ms-agenda
+
+volumes:
+  mysql_data:
