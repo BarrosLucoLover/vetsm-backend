@@ -42,3 +42,6 @@ build/
 
 ### Configuración local de Claude Code ###
 .claude/
+
+### Certificados de antivirus o proxy de cada computador (ver certificados-extra/LEEME.md) ###
+certificados-extra/*.crt

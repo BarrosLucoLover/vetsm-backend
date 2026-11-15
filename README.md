@@ -20,7 +20,16 @@ La primera vez tarda unos minutos (descarga las dependencias y compila). Despué
 - **Swagger de los cuatro servicios:** <http://localhost:8080/swagger-ui.html> (selector arriba a la derecha)
 - **Frontend:** en el repositorio del frontend, `npm run dev` y abrir <http://localhost:3000>
 
-Para apagar todo: `docker compose down`.
+Para apagar todo: `docker compose down`. Para ver los registros de un servicio:
+`docker compose logs -f ms-ventas`.
+
+**Si algo falla al usar Docker:**
+
+| Síntoma | Causa | Solución |
+|---|---|---|
+| Docker Desktop dice "unable to start" y `wsl --status` dice que no encuentra el kernel de WSL 2 | Windows tiene una versión antigua de WSL | En PowerShell como administrador: `wsl --update`, reiniciar y abrir Docker Desktop |
+| La construcción falla con `PKIX path building failed` | Un antivirus (por ejemplo Norton) o un proxy revisa el HTTPS y Maven no confía en su certificado | Exportar el certificado raíz del antivirus a `certificados-extra/` (ver `certificados-extra/LEEME.md`) y volver a construir |
+| El puerto 8080 está ocupado | Otra aplicación (o el backend corriendo sin Docker) usa ese puerto | Cerrarla, o cambiar `"8080:8080"` por `"9090:8080"` en `docker-compose.yml` |
 
 ### Sin Docker
 

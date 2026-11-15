@@ -15,6 +15,7 @@ services:
     restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: ${PERFIL:-h2}
+      TZ: America/Santiago
       JWT_SECRET: ${JWT_SECRET:-}
       JWT_COOKIE_SEGURA: ${JWT_COOKIE_SEGURA:-false}
       DB_URL: ${USUARIOS_DB_URL:-}
@@ -33,6 +34,7 @@ services:
     restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: ${PERFIL:-h2}
+      TZ: America/Santiago
       JWT_SECRET: ${JWT_SECRET:-}
       DB_URL: ${CATALOGO_DB_URL:-}
       DB_USER: ${CATALOGO_DB_USER:-}
@@ -46,6 +48,7 @@ services:
     restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: ${PERFIL:-h2}
+      TZ: America/Santiago
       JWT_SECRET: ${JWT_SECRET:-}
       DB_URL: ${VENTAS_DB_URL:-}
       DB_USER: ${VENTAS_DB_USER:-}
@@ -60,6 +63,7 @@ services:
     restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: ${PERFIL:-h2}
+      TZ: America/Santiago
       JWT_SECRET: ${JWT_SECRET:-}
       DB_URL: ${AGENDA_DB_URL:-}
       DB_USER: ${AGENDA_DB_USER:-}

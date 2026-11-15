@@ -120,7 +120,7 @@ class ApiCatalogoTest extends PruebaConToken {
     void swagger() throws Exception {
         mvc.perform(get("/v3/api-docs/catalogo"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.info.title").value(containsString("ms-catalogo")))
+                .andExpect(jsonPath("$.info.title").value("ms-catalogo: catálogo e inventario"))
                 .andExpect(jsonPath("$.paths['/api/v1/productos/{id}']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/categorias']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/reportes/inventario']").exists())

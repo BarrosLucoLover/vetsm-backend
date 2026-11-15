@@ -5,6 +5,13 @@
 # ---------- Etapa 1: compilar con Maven ----------
 FROM maven:3.9.9-eclipse-temurin-17 AS construccion
 WORKDIR /app
+# Si un antivirus o proxy revisa el HTTPS, su certificado raíz va en certificados-extra/*.crt
+# (ver certificados-extra/LEEME.md). Sin certificados, este paso no hace nada.
+COPY certificados-extra/ /tmp/certificados-extra/
+RUN for c in /tmp/certificados-extra/*.crt; do \
+        [ -f "$c" ] || continue; \
+        keytool -importcert -noprompt -cacerts -storepass changeit -alias "$(basename "$c" .crt)" -file "$c"; \
+    done
 COPY pom.xml .
 COPY comun comun
 COPY ms-usuarios ms-usuarios
