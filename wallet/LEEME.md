@@ -74,6 +74,8 @@ DB_USER=VETSM_CATALOGO DB_PASSWORD=... JWT_SECRET=... java -jar ms-catalogo/targ
 |---|---|---|
 | `ORA-12263: Fallo al acceder a tnsnames.ora` | El wallet no está descomprimido en esta carpeta, o quedó dentro de una subcarpeta | Descomprimir el `.zip` de modo que `tnsnames.ora` quede directamente en `wallet/` |
 | `ORA-12154` o `could not resolve the connect identifier` | `ORACLE_SERVICIO` no existe en `tnsnames.ora` | Abrir `tnsnames.ora` y copiar uno de los nombres que aparecen ahí (por ejemplo `vetsm_tp`) |
+| `ORA-17957` y `SSO KeyStore not available` | Falta la librería que lee `cwallet.sso` | Ya está incluida (`oraclepki` en el `pom.xml` de cada servicio): volver a compilar con `./mvnw package` |
+| `ORA-17002` y `PKIX path building failed` | Un antivirus (como Norton) revisa las conexiones cifradas y pone su propio certificado | Con Docker: copiar su certificado raíz a `certificados-extra/` (ver su LEEME) y reconstruir. Con los `.jar`: agregar `-Djavax.net.ssl.trustStoreType=Windows-ROOT -Djavax.net.ssl.trustStore=NUL` al comando `java` en Windows |
 | `ORA-01017: invalid username/password` | Usuario o contraseña incorrectos en `.env` | Revisar el `.env`; si hace falta, cambiar la clave con `ALTER USER ... IDENTIFIED BY "..."` |
 | `ORA-01950: no privileges on tablespace 'DATA'` | Falta la cuota del usuario | Ejecutar `ALTER USER <usuario> QUOTA UNLIMITED ON DATA;` |
 | `ORA-01031: insufficient privileges` | Faltan permisos para crear tablas | Ejecutar el `GRANT` del paso 1 para ese usuario |

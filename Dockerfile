@@ -30,6 +30,17 @@ WORKDIR /app
 # El servicio no corre como administrador del contenedor.
 RUN groupadd --system vetsm && useradd --system --gid vetsm vetsm
 COPY --from=construccion /app/${MODULO}/target/${MODULO}.jar app.jar
+# El mismo certificado del antivirus también hace falta al ejecutar: la conexión cifrada con
+# Oracle pasa por él. El driver de Oracle solo confía en el wallet, salvo que se le indique otro
+# almacén; por eso, si hay certificados extra, se le indica el de Java (que ahora los incluye).
+# Sin certificados (como en el servidor), este paso no hace nada.
+COPY certificados-extra/ /tmp/certificados-extra/
+RUN : > /app/opciones-java; \
+    for c in /tmp/certificados-extra/*.crt; do \
+        [ -f "$c" ] || continue; \
+        keytool -importcert -noprompt -cacerts -storepass changeit -alias "$(basename "$c" .crt)" -file "$c"; \
+        echo "-Djavax.net.ssl.trustStore=$JAVA_HOME/lib/security/cacerts -Djavax.net.ssl.trustStorePassword=changeit" > /app/opciones-java; \
+    done; rm -rf /tmp/certificados-extra
 USER vetsm
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75"
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS $(cat /app/opciones-java) -jar app.jar"]
