@@ -77,6 +77,21 @@ El script ajusta solo el `.env` del servidor (`PUERTO=80` y `SITIO_WEB` apuntand
 compilado), compila el frontend, construye los cuatro microservicios (unos 5 a 10 minutos la
 primera vez) y al final muestra la dirección del sitio.
 
+## En un PC sin Docker (por ejemplo, en el laboratorio)
+
+Solo hace falta **Java 17** (y **Node.js** para el frontend). En PowerShell, dentro de `vetsm-backend`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File desplegar\iniciar-sin-docker.ps1        # con Oracle
+powershell -ExecutionPolicy Bypass -File desplegar\iniciar-sin-docker.ps1 -H2    # sin Oracle, base en memoria
+```
+
+El script compila los `.jar` si no existen (necesita internet la primera vez), abre una ventana
+por microservicio (8081 a 8084) y espera a que respondan. Con Oracle necesita el `.env` y el
+`wallet/` en la carpeta; con `-H2` usa las cuentas de demostración. Luego, en la carpeta del
+frontend: `npm install` y `npm run dev:sin-docker`, y abrir http://localhost:3000.
+Para apagar, cerrar las ventanas (o usar `-Oculto` al levantar y `-Detener` para apagar).
+
 ## Actualizar después de un cambio
 
 Subir los cambios a GitHub y, en el servidor, volver a ejecutar `bash instalar.sh`.

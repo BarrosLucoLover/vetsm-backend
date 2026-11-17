@@ -46,3 +46,6 @@ build/
 
 ### Certificados de antivirus o proxy de cada computador (ver certificados-extra/LEEME.md) ###
 certificados-extra/*.crt
+
+### Registros de iniciar-sin-docker.ps1 ###
+logs/
