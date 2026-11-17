@@ -4,7 +4,8 @@ target/
 
 ### Credenciales: nunca se suben al repositorio ###
 .env
-wallet/
+wallet/*
+!wallet/LEEME.md
 Wallet_*/
 Wallet_*.zip
 

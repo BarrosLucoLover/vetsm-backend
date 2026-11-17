@@ -182,6 +182,7 @@ gateway/nginx.conf    Rutas del API Gateway
 Dockerfile            Receta para construir cualquiera de los servicios (argumento MODULO)
 docker-compose.yml    Levanta los cuatro servicios y el gateway
 .env.example          Variables para Oracle (copiar como .env)
+wallet/               Wallet de Oracle (no se sube a git; instrucciones en wallet/LEEME.md)
 ```
 
 Dentro de cada servicio se mantienen las capas: `controller` (endpoints REST), `service` (reglas
@@ -308,7 +309,21 @@ Cada servicio tiene **su propia base**:
   `catalogo`, `ventas`, `agenda`). Se crea con datos de demostración y se borra al apagar.
 - **Perfil `oracle`**: una Oracle Autonomous Database en OCI con **un usuario (esquema) por servicio**
   (`VETSM_USUARIOS`, `VETSM_CATALOGO`, `VETSM_VENTAS`, `VETSM_AGENDA`). Ningún esquema ve las tablas
-  de otro. Los datos de conexión van en `.env` (ver `.env.example`), que no se sube a git.
+  de otro. Las tablas las crea cada servicio al arrancar (`ddl-auto=update`).
+
+### Conectar con Oracle
+
+1. Crear la base y los cuatro usuarios, y descargar el wallet: los pasos y el script SQL están en
+   [`wallet/LEEME.md`](wallet/LEEME.md).
+2. Descomprimir el wallet dentro de la carpeta `wallet/`. Docker la monta en `/wallet` en los cuatro
+   servicios.
+3. Copiar `.env.example` como `.env`, poner `PERFIL=oracle` y completar el secreto JWT, el nombre de
+   conexión (`ORACLE_SERVICIO`, por ejemplo `vetsm_tp`) y las contraseñas.
+4. `docker compose up --build`.
+
+Cada servicio arma la URL JDBC con esos datos:
+`jdbc:oracle:thin:@${ORACLE_SERVICIO}?TNS_ADMIN=/wallet`. Se usa el wallet (mTLS) y no una lista de
+IPs permitidas porque la IP del servidor de AWS Academy cambia cada vez que se enciende.
 
 ## Pruebas
 

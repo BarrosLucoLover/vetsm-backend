@@ -1,8 +1,9 @@
 # Levanta todo el backend con un solo comando:   docker compose up --build
 # Gateway en http://localhost:8080  ·  Swagger en http://localhost:8080/swagger-ui.html
 #
-# Por defecto cada servicio usa su propia base H2 en memoria (perfil h2). Para Oracle, copiar
-# .env.example a .env, completar los datos y poner PERFIL=oracle.
+# Por defecto cada servicio usa su propia base H2 en memoria (perfil h2). Para Oracle:
+#   1. Descomprimir el wallet de la Autonomous Database dentro de la carpeta wallet/ (ver wallet/LEEME.md).
+#   2. Copiar .env.example como .env y completar los datos (PERFIL=oracle).
 
 name: vetsm
 
@@ -18,13 +19,15 @@ services:
       TZ: America/Santiago
       JWT_SECRET: ${JWT_SECRET:-}
       JWT_COOKIE_SEGURA: ${JWT_COOKIE_SEGURA:-false}
-      DB_URL: ${USUARIOS_DB_URL:-}
+      ORACLE_SERVICIO: ${ORACLE_SERVICIO:-vetsm_tp}
       DB_USER: ${USUARIOS_DB_USER:-}
       DB_PASSWORD: ${USUARIOS_DB_PASSWORD:-}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
       SEED_RECEPCION_PASSWORD: ${SEED_RECEPCION_PASSWORD:-}
       VENTAS_URL: http://ms-ventas:8083
       AGENDA_URL: http://ms-agenda:8084
+    volumes:
+      - ./wallet:/wallet:ro
 
   ms-catalogo:
     build:
@@ -36,9 +39,11 @@ services:
       SPRING_PROFILES_ACTIVE: ${PERFIL:-h2}
       TZ: America/Santiago
       JWT_SECRET: ${JWT_SECRET:-}
-      DB_URL: ${CATALOGO_DB_URL:-}
+      ORACLE_SERVICIO: ${ORACLE_SERVICIO:-vetsm_tp}
       DB_USER: ${CATALOGO_DB_USER:-}
       DB_PASSWORD: ${CATALOGO_DB_PASSWORD:-}
+    volumes:
+      - ./wallet:/wallet:ro
 
   ms-ventas:
     build:
@@ -50,10 +55,12 @@ services:
       SPRING_PROFILES_ACTIVE: ${PERFIL:-h2}
       TZ: America/Santiago
       JWT_SECRET: ${JWT_SECRET:-}
-      DB_URL: ${VENTAS_DB_URL:-}
+      ORACLE_SERVICIO: ${ORACLE_SERVICIO:-vetsm_tp}
       DB_USER: ${VENTAS_DB_USER:-}
       DB_PASSWORD: ${VENTAS_DB_PASSWORD:-}
       CATALOGO_URL: http://ms-catalogo:8082
+    volumes:
+      - ./wallet:/wallet:ro
 
   ms-agenda:
     build:
@@ -65,11 +72,13 @@ services:
       SPRING_PROFILES_ACTIVE: ${PERFIL:-h2}
       TZ: America/Santiago
       JWT_SECRET: ${JWT_SECRET:-}
-      DB_URL: ${AGENDA_DB_URL:-}
+      ORACLE_SERVICIO: ${ORACLE_SERVICIO:-vetsm_tp}
       DB_USER: ${AGENDA_DB_USER:-}
       DB_PASSWORD: ${AGENDA_DB_PASSWORD:-}
       CATALOGO_URL: http://ms-catalogo:8082
       USUARIOS_URL: http://ms-usuarios:8081
+    volumes:
+      - ./wallet:/wallet:ro
 
   # Única puerta de entrada: es el único contenedor con un puerto publicado hacia afuera.
   gateway:
